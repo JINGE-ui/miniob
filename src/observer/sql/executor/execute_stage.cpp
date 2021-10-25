@@ -33,7 +33,12 @@ See the Mulan PSL v2 for more details. */
 #include "storage/common/condition_filter.h"
 #include "storage/trx/trx.h"
 
+#include<algorithm>
+
 using namespace common;
+
+//by xiayuan：元数据校验，用于验证where子句的每一个条件是否有table来匹配，1表存在匹配，0表不存在并返回错误
+std::vector<int>condition_match;
 
 RC create_selection_executor(Trx *trx, const Selects &selects, const char *db, const char *table_name, SelectExeNode &select_node);
 
@@ -215,12 +220,20 @@ void end_trx_if_need(Session *session, Trx *trx, bool all_right) {
 
 // 这里没有对输入的某些信息做合法性校验，比如查询的列名、where条件中的列名等，没有做必要的合法性校验
 // 需要补充上这一部分. 校验部分也可以放在resolve，不过跟execution放一起也没有关系
+// 元数据校验，目前仅支持单表，一个bug：如果支持 select *,列名 from.. 会发生core dumped，所以干脆不支持了
 RC ExecuteStage::do_select(const char *db, Query *sql, SessionEvent *session_event) {
 
   RC rc = RC::SUCCESS;
   Session *session = session_event->get_client()->session;
   Trx *trx = session->current_trx();
   const Selects &selects = sql->sstr.selection;
+
+  //by xiayuan：初始化condition_match为全0
+  condition_match.clear();
+  for (size_t i = 0; i < selects.condition_num; i++) {
+      condition_match.push_back(0);
+  }
+
   // 把所有的表和只跟这张表关联的condition都拿出来，生成最底层的select 执行节点
   std::vector<SelectExeNode *> select_nodes;
   for (size_t i = 0; i < selects.relation_num; i++) {
@@ -232,6 +245,10 @@ RC ExecuteStage::do_select(const char *db, Query *sql, SessionEvent *session_eve
       for (SelectExeNode *& tmp_node: select_nodes) {
         delete tmp_node;
       }
+      //元数据校验，添加错误打印信息
+      const char* response = "FAILURE\n";
+      session_event->set_response(response);
+      //
       end_trx_if_need(session, trx, false);
       return rc;
     }
@@ -243,6 +260,22 @@ RC ExecuteStage::do_select(const char *db, Query *sql, SessionEvent *session_eve
     end_trx_if_need(session, trx, false);
     return RC::SQL_SYNTAX;
   }
+
+  //by xiayuan：元数据校验，where子句中如果有条件未匹配，说明有非法列名
+  if ((find(condition_match.begin(), condition_match.end(), 0) != condition_match.end())
+      && !condition_match.empty()) {
+      for (SelectExeNode*& tmp_node : select_nodes) {
+          delete tmp_node;
+      }
+      //打印错误
+      const char* response = "FAILURE\n";
+      session_event->set_response(response);
+
+      end_trx_if_need(session, trx, false);
+
+      return RC::GENERIC_ERROR;
+  }
+  //
 
   std::vector<TupleSet> tuple_sets;
   for (SelectExeNode *&node: select_nodes) {
@@ -299,6 +332,9 @@ RC create_selection_executor(Trx *trx, const Selects &selects, const char *db, c
   // 列出跟这张表关联的Attr
   TupleSchema schema;
   Table * table = DefaultHandler::get_default().find_table(db, table_name);
+
+  std::stringstream ss;
+  ss << "start create executor" << std::endl;
   if (nullptr == table) {
     LOG_WARN("No such table [%s] in db [%s]", table_name, db);
     return RC::SCHEMA_TABLE_NOT_EXIST;
@@ -315,6 +351,7 @@ RC create_selection_executor(Trx *trx, const Selects &selects, const char *db, c
         // 列出这张表相关字段
         RC rc = schema_add_field(table, attr.attribute_name, schema);
         if (rc != RC::SUCCESS) {
+
           return rc;
         }
       }
@@ -331,6 +368,9 @@ RC create_selection_executor(Trx *trx, const Selects &selects, const char *db, c
         (condition.left_is_attr == 1 && condition.right_is_attr == 1 &&
             match_table(selects, condition.left_attr.relation_name, table_name) && match_table(selects, condition.right_attr.relation_name, table_name)) // 左右都是属性名，并且表名都符合
         ) {
+        //by xiayuan：标记此条件有匹配
+        condition_match[i] = 1;
+
       DefaultConditionFilter *condition_filter = new DefaultConditionFilter();
       RC rc = condition_filter->init(*table, condition);
       if (rc != RC::SUCCESS) {
