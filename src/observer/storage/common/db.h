@@ -40,7 +40,9 @@ public:
   void all_tables(std::vector<std::string> &table_names) const;
 
   RC sync();
-private:
+
+//private:
+//改变权限，可以调用刷新opened_tables_，以达到drop table后消除痕迹的目的
   RC open_all_tables();
 
 private:

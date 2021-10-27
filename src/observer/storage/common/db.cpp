@@ -79,6 +79,13 @@ Table *Db::find_table(const char *table_name) const {
   return nullptr;
 }
 
+//add a fun:
+RC flush_opened_tables() {
+    
+    return RC::SUCCESS;
+}
+
+
 RC Db::open_all_tables() {
   std::vector<std::string> table_meta_files;
   int ret = common::list_file(path_.c_str(), TABLE_META_FILE_PATTERN, table_meta_files);
@@ -88,9 +95,11 @@ RC Db::open_all_tables() {
   }
 
   RC rc = RC::SUCCESS;
+  opened_tables_.clear(); ///add by xiayuan
   for (const std::string &filename : table_meta_files) {
     Table *table = new Table();
     rc = table->open(filename.c_str(), path_.c_str());
+    LOG_INFO("path=%s, filename=%s\n", path_.c_str(), filename.c_str());
     if (rc != RC::SUCCESS) {
       delete table;
       LOG_ERROR("Failed to open table. filename=%s", filename.c_str());
