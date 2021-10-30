@@ -36,9 +36,20 @@ See the Mulan PSL v2 for more details. */
 #include<algorithm>
 
 using namespace common;
-
-//by xiayuan：元数据校验，用于验证where子句的每一个条件是否有table来匹配，1表存在匹配，0表不存在并返回错误
+using namespace std;
+//by xiayuan：元数据校验，用于验证where子句的每一个条件的左右部分是否有table来匹配，1表存在匹配，0表不存在并返回错误
 std::vector<int>condition_match;
+
+std::vector<std::vector<string>> tables_value;
+std::vector<std::string> Cartesian_result, cur_table;
+std::unordered_map<std::string, int>relation_map_offset;
+std::vector<std::string>  relation_map_order;
+CompositeConditionFilter* condition_filter = new CompositeConditionFilter;
+int curtable_record_size = 0;
+
+
+//
+RC select_tables(Trx* trx, const char* db, const Selects& selects, TupleSet& tuple_set);
 
 RC create_selection_executor(Trx *trx, const Selects &selects, const char *db, const char *table_name, SelectExeNode &select_node);
 
@@ -217,6 +228,39 @@ void end_trx_if_need(Session *session, Trx *trx, bool all_right) {
     }
   }
 }
+//为了select-tables新增的函数
+void select_record_reader(const char* data, void* context) {
+    std::vector<string>* ptr_string = (std::vector<string>*)context;
+    string tmp(data, data + curtable_record_size);
+    (*ptr_string).push_back(tmp);
+}
+
+RC run(vector<vector<string>> &dimvalue, vector<string> &result, int layer, string curstring)
+{
+    if (layer < dimvalue.size() - 1)
+    {
+        if (dimvalue[layer].size() == 0) {
+            return RC::GENERIC_ERROR;
+        }
+        for (int i = 0; i < dimvalue[layer].size(); i++)
+        {
+            if (run(dimvalue, result, layer + 1, curstring + dimvalue[layer][i]) != RC::SUCCESS) {
+                return RC::GENERIC_ERROR;
+            }
+        }
+    }
+    else if (layer == dimvalue.size() - 1)
+    {
+        if (dimvalue[layer].size() == 0) {
+            return RC::GENERIC_ERROR;
+        }
+        for (int i = 0; i < dimvalue[layer].size(); i++)
+        {
+            result.push_back(curstring + dimvalue[layer][i]);
+        }
+    }
+    return RC::SUCCESS;
+}
 
 // 这里没有对输入的某些信息做合法性校验，比如查询的列名、where条件中的列名等，没有做必要的合法性校验
 // 需要补充上这一部分. 校验部分也可以放在resolve，不过跟execution放一起也没有关系
@@ -234,75 +278,65 @@ RC ExecuteStage::do_select(const char *db, Query *sql, SessionEvent *session_eve
       condition_match.push_back(0);
   }
 
-  // 把所有的表和只跟这张表关联的condition都拿出来，生成最底层的select 执行节点
-  std::vector<SelectExeNode *> select_nodes;
-  for (size_t i = 0; i < selects.relation_num; i++) {
-    const char *table_name = selects.relations[i];
-    SelectExeNode *select_node = new SelectExeNode;
-    rc = create_selection_executor(trx, selects, db, table_name, *select_node);
-    if (rc != RC::SUCCESS) {
-      delete select_node;
-      for (SelectExeNode *& tmp_node: select_nodes) {
-        delete tmp_node;
+  TupleSet tuple_set; //查询结果保存
+
+  relation_map_offset.clear();
+  relation_map_order.clear();
+  Cartesian_result.clear();
+  tables_value.clear();
+  cur_table.clear();
+
+  if (selects.relation_num > 1) {   //多表查询
+      if (select_tables(trx, db, selects, tuple_set) != RC::SUCCESS) {
+          const char* response = "FAILURE\n";
+          session_event->set_response(response);
+          return RC::GENERIC_ERROR;
       }
-      //元数据校验，添加错误打印信息
-      const char* response = "FAILURE\n";
-      session_event->set_response(response);
-      //
+  } 
+  else if(selects.relation_num == 1) {  //单表查询
+        const char* table_name = selects.relations[0];
+        SelectExeNode* select_node = new SelectExeNode;
+        rc = create_selection_executor(trx, selects, db, table_name, *select_node);
+        if (rc != RC::SUCCESS) {
+            delete select_node;
+            //元数据校验，添加错误打印信息，错误有：select的非法列名，from的非法表名，where的非法列名
+            const char* response = "FAILURE\n";
+            session_event->set_response(response);
+            //
+            end_trx_if_need(session, trx, false);
+            return rc;
+        }
+
+        //by xiayuan：元数据校验+support单表，where子句中如果有条件未匹配，说明有非法表名
+        if ((find(condition_match.begin(), condition_match.end(), 0) != condition_match.end())
+            && !condition_match.empty()) {
+            delete select_node;
+            //打印错误
+            const char* response = "FAILURE\n";
+            session_event->set_response(response);
+
+            end_trx_if_need(session, trx, false);
+            return RC::GENERIC_ERROR;
+        }
+        //
+        rc = select_node->execute(tuple_set);
+        if (rc != RC::SUCCESS) {
+            delete select_node;
+            end_trx_if_need(session, trx, false);
+            return rc;
+        }
+        delete select_node;
+  }
+  else {  //relation_num<1
+      LOG_ERROR("No table given");
       end_trx_if_need(session, trx, false);
-      return rc;
-    }
-    select_nodes.push_back(select_node);
+      return RC::SQL_SYNTAX;
   }
-
-  if (select_nodes.empty()) {
-    LOG_ERROR("No table given");
-    end_trx_if_need(session, trx, false);
-    return RC::SQL_SYNTAX;
-  }
-
-  //by xiayuan：元数据校验，where子句中如果有条件未匹配，说明有非法列名
-  if ((find(condition_match.begin(), condition_match.end(), 0) != condition_match.end())
-      && !condition_match.empty()) {
-      for (SelectExeNode*& tmp_node : select_nodes) {
-          delete tmp_node;
-      }
-      //打印错误
-      const char* response = "FAILURE\n";
-      session_event->set_response(response);
-
-      end_trx_if_need(session, trx, false);
-
-      return RC::GENERIC_ERROR;
-  }
-  //
-
-  std::vector<TupleSet> tuple_sets;
-  for (SelectExeNode *&node: select_nodes) {
-    TupleSet tuple_set;
-    rc = node->execute(tuple_set);
-    if (rc != RC::SUCCESS) {
-      for (SelectExeNode *& tmp_node: select_nodes) {
-        delete tmp_node;
-      }
-      end_trx_if_need(session, trx, false);
-      return rc;
-    } else {
-      tuple_sets.push_back(std::move(tuple_set));
-    }
-  }
+  
 
   std::stringstream ss;
-  if (tuple_sets.size() > 1) {
-    // 本次查询了多张表，需要做join操作
-  } else {
-    // 当前只查询一张表，直接返回结果即可
-    tuple_sets.front().print(ss);
-  }
+  tuple_set.print(ss, selects.relation_num);
 
-  for (SelectExeNode *& tmp_node: select_nodes) {
-    delete tmp_node;
-  }
   session_event->set_response(ss.str());
   end_trx_if_need(session, trx, true);
   return rc;
@@ -314,6 +348,17 @@ bool match_table(const Selects &selects, const char *table_name_in_condition, co
   }
 
   return selects.relation_num == 1;
+}
+
+//为了支持多表查询，对match_table重载
+bool match_table(const Selects& selects, const char* table_name_in_condition) {
+    if (table_name_in_condition == nullptr || selects.relation_num == 1) {   //不满足多表查询的匹配规则 
+        return false;
+    }
+    if (relation_map_offset.find(table_name_in_condition) == relation_map_offset.end()) {   //该表不存在
+        return false;
+    }
+    return true;
 }
 
 static RC schema_add_field(Table *table, const char *field_name, TupleSchema &schema) {
@@ -333,8 +378,6 @@ RC create_selection_executor(Trx *trx, const Selects &selects, const char *db, c
   TupleSchema schema;
   Table * table = DefaultHandler::get_default().find_table(db, table_name);
 
-  std::stringstream ss;
-  ss << "start create executor" << std::endl;
   if (nullptr == table) {
     LOG_WARN("No such table [%s] in db [%s]", table_name, db);
     return RC::SCHEMA_TABLE_NOT_EXIST;
@@ -355,6 +398,9 @@ RC create_selection_executor(Trx *trx, const Selects &selects, const char *db, c
           return rc;
         }
       }
+    }
+    else {   //非法表名
+        return RC::GENERIC_ERROR;
     }
   }
 
@@ -385,4 +431,149 @@ RC create_selection_executor(Trx *trx, const Selects &selects, const char *db, c
   }
 
   return select_node.init(trx, table, std::move(schema), std::move(condition_filters));
+}
+
+
+RC select_tables(Trx* trx, const char* db, const Selects& selects, TupleSet& tuple_set) {
+    //多表查询，获得每个表的全部内容
+    int none_flag = 0;
+    for (int i = selects.relation_num - 1, offset = 0; i >= 0; i--)
+    {
+        const char* table_name = selects.relations[i];
+        relation_map_order.push_back(table_name);
+
+        Table* table = DefaultHandler::get_default().find_table(db, table_name);
+        if (nullptr == table) {
+            LOG_WARN("No such table [%s] in db [%s]", table_name, db);
+            return RC::SCHEMA_TABLE_NOT_EXIST;
+        }
+        const TableMeta tablemeta = table->table_meta();
+
+        relation_map_offset[table_name] = offset;
+        curtable_record_size = tablemeta.record_size();   //全局变量，当前表的一条记录的长度
+        offset += tablemeta.record_size();  //累加offset
+
+        cur_table.clear();   //当前表的所有记录存在cur_table
+        table->scan_record(trx, nullptr, -1, (void*)(&cur_table), select_record_reader);
+        if (cur_table.empty()) {  //如果存在一个表为空,多表查询的结果一定为空，所以只需获取tupleschema，即可结束
+            none_flag = 1;
+        }
+        tables_value.push_back(cur_table);  //tables_value存放所有表的记录
+        cur_table.clear();
+    }
+    LOG_INFO("get table values\n");
+
+    //获取要投影的字段
+    TupleSchema schema;
+    for (int i = selects.attr_num - 1; i >= 0; i--) {
+        const RelAttr& attr = selects.attributes[i];
+        if (attr.relation_name == nullptr) {  //没有表名.修饰
+            if (strcmp("*", attr.attribute_name) != 0) {   //多表查询 不是*，必须有表名.修饰
+                return RC::GENERIC_ERROR;
+            }
+            //*：投影全部字段
+            schema.clear();
+            for (vector<string>::iterator it = relation_map_order.begin(); it < relation_map_order.end(); it++) {
+                Table* table = DefaultHandler::get_default().find_table(db, (*it).c_str());
+                TupleSchema::from_table(table, schema);
+            }
+            break;
+        }
+        else {  //有表名.修饰
+            if (match_table(selects, attr.relation_name) == false) {  //非法表名
+                return RC::GENERIC_ERROR;
+            }
+            Table* table = DefaultHandler::get_default().find_table(db, attr.relation_name);
+            RC rc = schema_add_field(table, attr.attribute_name, schema);
+            if (rc != RC::SUCCESS) {
+                return rc;
+            }
+        }
+    }
+    LOG_INFO("get tupleschema\n");
+
+    if (none_flag) {
+        tuple_set.clear();
+        tuple_set.set_schema(schema);
+        LOG_INFO("exit in advance\n");
+        return RC::SUCCESS;
+    }
+
+    //获取笛卡尔积
+    if (run(tables_value, Cartesian_result, 0, "") != RC::SUCCESS) {   //获取的笛卡尔积存在Cartesian_result，run函数按理不会执行失败
+        LOG_INFO("Failed to excute run() function!\n");
+        return RC::GENERIC_ERROR;
+    }
+    LOG_INFO("get Cartesian_result\n");
+    //生成过滤列表
+    std::vector<DefaultConditionFilter*> condition_filters;
+    for (size_t i = 0; i < selects.condition_num; i++) {
+        const Condition& condition = selects.conditions[i];
+        if ((condition.left_is_attr == 0 && condition.right_is_attr == 0) || // 两边都是值
+            (condition.left_is_attr == 1 && condition.right_is_attr == 0 && match_table(selects, condition.left_attr.relation_name)) ||  // 左边是属性右边是值
+            (condition.left_is_attr == 0 && condition.right_is_attr == 1 && match_table(selects, condition.right_attr.relation_name)) ||  // 左边是值，右边是属性名
+            (condition.left_is_attr == 1 && condition.right_is_attr == 1 &&
+                match_table(selects, condition.left_attr.relation_name) && match_table(selects, condition.right_attr.relation_name)) // 左右都是属性名，并且表名都符合
+            ) {
+            //获取左右表在笛卡尔积中的偏移
+            int left_offset = 0, right_offset = 0;
+            Table* left_table=nullptr, * right_table=nullptr;
+            if (condition.left_is_attr == 1 && match_table(selects, condition.left_attr.relation_name)) {   //左边是带表名.的属性
+                left_offset = relation_map_offset[condition.left_attr.relation_name];   //应该不会出现key不存在的现象
+                left_table = DefaultHandler::get_default().find_table(db, condition.left_attr.relation_name);
+            }
+            if (condition.right_is_attr == 1 && match_table(selects, condition.right_attr.relation_name)) {
+                right_offset = relation_map_offset[condition.right_attr.relation_name];
+                right_table = DefaultHandler::get_default().find_table(db, condition.right_attr.relation_name);
+            }
+            /*
+            if (left_table == nullptr || right_table == nullptr) {
+                LOG_ERROR("an unexcepted error!\n");
+                return RC::GENERIC_ERROR;
+            }
+            */
+
+            DefaultConditionFilter* condition_filter = new DefaultConditionFilter();
+            RC rc = condition_filter->init(left_table, right_table, condition, left_offset, right_offset);
+            if (rc != RC::SUCCESS) {   //非法列名
+                delete condition_filter;
+                for (DefaultConditionFilter*& filter : condition_filters) {
+                    delete filter;
+                }
+                return rc;
+            }
+            condition_filters.push_back(condition_filter);
+        }
+        else {   //有非法表名
+            return RC::GENERIC_ERROR;
+        }
+    }
+    condition_filter->init((const ConditionFilter**)condition_filters.data(), condition_filters.size());
+    LOG_INFO("get condition filters\n");
+    //开始过滤
+    vector<string>::iterator it = Cartesian_result.begin();
+    while (it != Cartesian_result.end()) {
+        Record rec; 
+        rec.data = (char*)((*it).c_str());
+        if (condition_filter->filter(rec)) {   //false
+            it++;
+        }else{
+            it = Cartesian_result.erase(it);
+        }
+    }
+
+    for (DefaultConditionFilter*& filter : condition_filters) {
+        delete filter;
+    }
+    LOG_INFO("success to filter:\n");
+
+    //投影
+    tuple_set.clear();
+    tuple_set.set_schema(schema);
+    TupleRecordConverter converter(nullptr, tuple_set);
+
+    for (string record : Cartesian_result) {
+        converter.add_record(record.c_str(), db, relation_map_offset);
+    }
+    return RC::SUCCESS;
 }
