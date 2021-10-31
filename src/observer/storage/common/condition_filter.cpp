@@ -57,6 +57,86 @@ RC DefaultConditionFilter::init(const ConDesc &left, const ConDesc &right, AttrT
   return RC::SUCCESS;
 }
 
+//新增的init重载函数，基本没变，只加了offset
+RC DefaultConditionFilter::init(Table *left_table, Table *right_table, const Condition& condition, int left_base_offset, int right_base_offset) {
+    
+    ConDesc left;
+    ConDesc right;
+
+    AttrType type_left = UNDEFINED;
+    AttrType type_right = UNDEFINED;
+
+    if (1 == condition.left_is_attr) {
+        if (left_table == nullptr) {
+            LOG_ERROR("an unexpected error\n");
+            return RC::GENERIC_ERROR;
+        }
+        const TableMeta& left_table_meta = left_table->table_meta();
+
+        left.is_attr = true;
+        const FieldMeta* field_left = left_table_meta.field(condition.left_attr.attribute_name);
+        if (nullptr == field_left) {
+            LOG_WARN("No such field in condition. %s.%s", left_table->name(), condition.left_attr.attribute_name);
+            return RC::SCHEMA_FIELD_MISSING;
+        }
+        left.attr_length = field_left->len();
+        left.attr_offset = field_left->offset() + left_base_offset;  //add offset
+
+        left.value = nullptr;
+
+        type_left = field_left->type();
+    }
+    else {
+        left.is_attr = false;
+        left.value = condition.left_value.data;  // 校验type 或者转换类型
+        type_left = condition.left_value.type;
+
+        left.attr_length = 0;
+        left.attr_offset = 0;
+    }
+
+    if (1 == condition.right_is_attr) {
+        if (right_table == nullptr) {
+            LOG_ERROR("an unexpected error\n");
+            return RC::GENERIC_ERROR;
+        }
+        const TableMeta& right_table_meta = right_table->table_meta();
+
+        right.is_attr = true;
+        const FieldMeta* field_right = right_table_meta.field(condition.right_attr.attribute_name);
+        if (nullptr == field_right) {
+            LOG_WARN("No such field in condition. %s.%s", right_table->name(), condition.right_attr.attribute_name);
+            return RC::SCHEMA_FIELD_MISSING;
+        }
+        right.attr_length = field_right->len();
+        right.attr_offset = field_right->offset() + right_base_offset;      //add offset
+        type_right = field_right->type();
+
+        right.value = nullptr;
+    }
+    else {
+        right.is_attr = false;
+        right.value = condition.right_value.data;
+        type_right = condition.right_value.type;
+
+        right.attr_length = 0;
+        right.attr_offset = 0;
+    }
+
+    // 校验和转换
+    //  if (!field_type_compare_compatible_table[type_left][type_right]) {
+    //    // 不能比较的两个字段， 要把信息传给客户端
+    //    return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+    //  }
+    // NOTE：这里没有实现不同类型的数据比较，比如整数跟浮点数之间的对比
+    // 但是选手们还是要实现。这个功能在预选赛中会出现
+    if (type_left != type_right) {
+        return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+    }
+
+    return init(left, right, type_left, condition.comp);
+}
+
 RC DefaultConditionFilter::init(Table &table, const Condition &condition)
 {
   const TableMeta &table_meta = table.table_meta();

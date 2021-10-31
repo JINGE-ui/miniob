@@ -128,7 +128,61 @@ RC DefaultHandler::create_table(const char *dbname, const char *relation_name, i
 }
 
 RC DefaultHandler::drop_table(const char *dbname, const char *relation_name) {
-  return RC::GENERIC_ERROR;
+  //by xiayuan:
+  Db* db = find_db(dbname);
+  if (db == nullptr) {
+      return RC::SCHEMA_DB_NOT_OPENED;
+  }
+  Table* table = find_table(dbname, relation_name);
+  if (nullptr == table) {
+      return RC::SCHEMA_TABLE_NOT_EXIST;
+  }
+  //浏览所有index，并删除
+  TableMeta tablemeta = table->table_meta();
+  for (int i = 0; i < tablemeta.index_num(); i++) {
+      const IndexMeta* index_meta = tablemeta.index(i);
+      std::string index_name = index_meta->name();
+      if (drop_index(nullptr, dbname, relation_name, index_name.c_str()) != RC::SUCCESS) {
+          LOG_ERROR("Failed to delete index: %s\n", index_name.c_str());
+          return RC::GENERIC_ERROR;
+      }
+  }
+  std::string relation_name_str = relation_name;
+  //std::string data_file = base_dir_ + relation_name_str + ".data";   不对，干脆不改了
+  //std::string table_file = base_dir_ + relation_name_str + ".table";
+  std::string data_file = "./miniob/db/sys/" + relation_name_str + ".data";
+  std::string table_file = "./miniob/db/sys/" + relation_name_str + ".table";
+  if (remove(data_file.c_str()) != 0) {
+      LOG_ERROR("Failed to delete .data file: %s\n", data_file.c_str());
+      return RC::GENERIC_ERROR;
+  }
+  if (remove(table_file.c_str()) != 0) {
+      LOG_ERROR("Failed to delete .table file: %s\n", table_file.c_str());
+      return RC::GENERIC_ERROR;
+  }
+  delete table;
+  /* a test
+  std::fstream f1,f2;
+  f1.open(data_file.c_str());
+  f2.open(table_file.c_str());
+  if (f1.is_open()) {
+      f1.close();
+      LOG_INFO("Failed to delete .data file: %s\n", data_file.c_str());
+      return RC::GENERIC_ERROR;
+  }
+  if (f2.is_open()) {
+      f2.close();
+      LOG_INFO("Failed to delete .data file: %s\n", table_file.c_str());
+      return RC::GENERIC_ERROR;
+  }
+  */
+  if (db->open_all_tables() != RC::SUCCESS) {
+      LOG_INFO("Failed to flush opened_tables_\n");
+      return RC::GENERIC_ERROR;
+  }
+
+  ///
+  return RC::SUCCESS;
 }
 
 RC DefaultHandler::create_index(Trx *trx, const char *dbname, const char *relation_name, const char *index_name, const char *attribute_name) {
@@ -140,8 +194,28 @@ RC DefaultHandler::create_index(Trx *trx, const char *dbname, const char *relati
 }
 
 RC DefaultHandler::drop_index(Trx *trx, const char *dbname, const char *relation_name, const char *index_name) {
+  //by xiayuan: drop index
+    Table* table = find_table(dbname, relation_name);
+    if (nullptr == table) {  //table不存在
+        return RC::SCHEMA_TABLE_NOT_EXIST;
+    }
+    TableMeta tablemeta = table->table_meta();
+    if (tablemeta.index(index_name) == nullptr) {  //index不存在
+        return RC::SCHEMA_INDEX_NOT_EXIST;
+    }
 
-  return RC::GENERIC_ERROR;
+    std::string relation_name_str = relation_name;
+    std::string indexfile_name = relation_name_str + "-";
+    indexfile_name += index_name;
+    indexfile_name += ".index";
+    //std::string index_path = base_dir_ + indexfile_name;
+    std::string index_path = "./miniob/db/sys/" + indexfile_name;
+    if (remove(index_path.c_str()) != 0) {  //删除失败
+        LOG_ERROR("Failed to delete .index file: %s\n", index_path.c_str());
+        return RC::GENERIC_ERROR;
+    }
+
+  return RC::SUCCESS;
 }
 
 RC DefaultHandler::insert_record(Trx *trx, const char *dbname, const char *relation_name, int value_num, const Value *values) {

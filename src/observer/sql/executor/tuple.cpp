@@ -16,6 +16,8 @@ See the Mulan PSL v2 for more details. */
 #include "storage/common/table.h"
 #include "common/log/log.h"
 
+#include "storage/default/default_handler.h"
+
 Tuple::Tuple(const Tuple &other) {
   LOG_PANIC("Copy constructor of tuple is not supported");
   exit(1);
@@ -108,6 +110,26 @@ int TupleSchema::index_of_field(const char *table_name, const char *field_name) 
   return -1;
 }
 
+void TupleSchema::print(std::ostream& os, int table_num) const {
+    if (fields_.empty()) {
+        os << "No schema";
+        return;
+    }
+
+    for (std::vector<TupleField>::const_iterator iter = fields_.begin(), end = --fields_.end();
+        iter != end; ++iter) {
+        if (table_num > 1) {
+            os << iter->table_name() << ".";
+        }
+        os << iter->field_name() << " | ";
+    }
+
+    if (table_num > 1) {
+        os << fields_.back().table_name() << ".";
+    }
+    os << fields_.back().field_name() << std::endl;
+}
+
 void TupleSchema::print(std::ostream &os) const {
   if (fields_.empty()) {
     os << "No schema";
@@ -162,6 +184,26 @@ void TupleSet::clear() {
   schema_.clear();
 }
 
+void TupleSet::print(std::ostream& os, int table_num) const {
+    if (schema_.fields().empty()) {
+        LOG_WARN("Got empty schema");
+        return;
+    }
+
+    schema_.print(os, table_num);
+
+    for (const Tuple& item : tuples_) {
+        const std::vector<std::shared_ptr<TupleValue>>& values = item.values();
+        for (std::vector<std::shared_ptr<TupleValue>>::const_iterator iter = values.begin(), end = --values.end();
+            iter != end; ++iter) {
+            (*iter)->to_string(os);
+            os << " | ";
+        }
+        values.back()->to_string(os);
+        os << std::endl;
+    }
+}
+
 void TupleSet::print(std::ostream &os) const {
   if (schema_.fields().empty()) {
     LOG_WARN("Got empty schema");
@@ -210,7 +252,56 @@ const std::vector<Tuple> &TupleSet::tuples() const {
 TupleRecordConverter::TupleRecordConverter(Table *table, TupleSet &tuple_set) :
       table_(table), tuple_set_(tuple_set){
 }
+void TupleRecordConverter::add_record(const char* record, const char* db, const unordered_map<string, int> &table_map_offset) {
+    //table_ = nullptr
+    const TupleSchema& schema = tuple_set_.schema();
+    Tuple tuple;
+    for (const TupleField& field : schema.fields()) {
+        //get table offest: table_offset
+        const char* table_name = field.table_name();
+        int table_offset = 0;
+        Table* table = DefaultHandler::get_default().find_table(db, table_name);
+        if (nullptr == table) {   //应该不会发生
+            LOG_WARN("unexpected error!\n");
+            return;
+            //return RC::SCHEMA_TABLE_NOT_EXIST;
+        }
+        if (table_map_offset.find(table_name) == table_map_offset.end()) {   //理论上不会发生
+            LOG_WARN("unexpected error!\n");
+            return;
+            //return RC::GENERIC_ERROR;
+        }
+        table_offset = table_map_offset.at(table_name);
+        //get field offset: field_meta->offset()
+        const TableMeta& table_meta = table->table_meta();
+        const FieldMeta* field_meta = table_meta.field(field.field_name());
 
+        assert(field_meta != nullptr);
+        //
+        switch (field_meta->type()) {
+        case INTS: {
+            int value = *(int*)(record + field_meta->offset() + table_offset);    //add table offset
+            tuple.add(value);
+        }
+                 break;
+        case FLOATS: {
+            float value = *(float*)(record + field_meta->offset() + table_offset);    //add table offset
+            tuple.add(value);
+        }
+                   break;
+        case CHARS: {
+            const char* s = record + field_meta->offset() + table_offset;  // 现在当做Cstring来处理
+            tuple.add(s, strlen(s));
+        }
+                  break;
+        default: {
+            LOG_PANIC("Unsupported field type. type=%d", field_meta->type());
+        }
+        }
+    }
+
+    tuple_set_.add(std::move(tuple));
+}
 void TupleRecordConverter::add_record(const char *record) {
   const TupleSchema &schema = tuple_set_.schema();
   Tuple tuple;

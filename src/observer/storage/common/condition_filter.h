@@ -48,6 +48,9 @@ public:
   RC init(const ConDesc &left, const ConDesc &right, AttrType attr_type, CompOp comp_op);
   RC init(Table &table, const Condition &condition);
 
+  //by XY:重载init函数for select-tables
+  RC init(Table *left_table, Table *right_table, const Condition& condition, int left_base_offset, int right_base_offset);
+
   virtual bool filter(const Record &rec) const;
 
 public:

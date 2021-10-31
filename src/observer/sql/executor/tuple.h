@@ -21,6 +21,9 @@ See the Mulan PSL v2 for more details. */
 #include "sql/parser/parse.h"
 #include "sql/executor/value.h"
 
+#include <unordered_map>
+using namespace std;
+
 class Table;
 
 class Tuple {
@@ -108,6 +111,10 @@ public:
   }
 
   void print(std::ostream &os) const;
+
+  //for select tables：增加参数table_num
+  void print(std::ostream& os, int table_num) const;
+
 public:
   static void from_table(const Table *table, TupleSchema &schema);
 private:
@@ -138,6 +145,9 @@ public:
   const std::vector<Tuple> &tuples() const;
 
   void print(std::ostream &os) const;
+  //for select tables：增加参数table_num
+  void print(std::ostream& os, int table_num) const;
+
 public:
   const TupleSchema &schema() const {
     return schema_;
@@ -152,6 +162,12 @@ public:
   TupleRecordConverter(Table *table, TupleSet &tuple_set);
 
   void add_record(const char *record);
+
+  /*
+  for: select tables
+  参数table_map_offset：（表table，它在多表做笛卡尔积后的记录record中的偏移量）
+  */
+  void add_record(const char* record, const char* db, const unordered_map<string, int> &table_map_offset);
 private:
   Table *table_;
   TupleSet &tuple_set_;
