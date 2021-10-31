@@ -55,7 +55,7 @@ public:
   RC delete_record(Trx *trx, ConditionFilter *filter, int *deleted_count);
 
   RC scan_record(Trx *trx, ConditionFilter *filter, int limit, void *context, void (*record_reader)(const char *data, void *context));
-
+  RC scan_record(Trx *trx, ConditionFilter *filter, int limit, std::vector<RID >& ridlist);
   RC create_index(Trx *trx, const char *index_name, const char *attribute_name);
 
 public:
@@ -74,12 +74,13 @@ public:
 private:
   RC scan_record(Trx *trx, ConditionFilter *filter, int limit, void *context, RC (*record_reader)(Record *record, void *context));
   RC scan_record_by_index(Trx *trx, IndexScanner *scanner, ConditionFilter *filter, int limit, void *context, RC (*record_reader)(Record *record, void *context));
+  RC scan_record_by_index(Trx *trx, IndexScanner *scanner, ConditionFilter *filter, int limit, std::vector<RID >& ridlist);
   IndexScanner *find_index_for_scan(const ConditionFilter *filter);
   IndexScanner *find_index_for_scan(const DefaultConditionFilter &filter);
 
   RC insert_record(Trx *trx, Record *record);
   RC delete_record(Trx *trx, Record *record);
-
+  RC update_record(Trx *trx, int attr_offset, int attr_len, const Value *value, Record *record);
 private:
   friend class RecordUpdater;
   friend class RecordDeleter;
@@ -92,6 +93,9 @@ private:
 
 private:
   Index *find_index(const char *index_name) const;
+
+  //add for update 
+  RC update_index(Trx* trx, const char* attribute_name);
 
 private:
   std::string             base_dir_;
