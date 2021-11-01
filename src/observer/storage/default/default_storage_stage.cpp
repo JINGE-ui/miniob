@@ -345,11 +345,27 @@ RC insert_record_from_file(Table *table, std::vector<std::string> &file_values,
         value_init_string(&record_values[i], file_value.c_str());
       }
       break;
+      case DATES:{
+        deserialize_stream.clear(); // 清理stream的状态，防止多次解析出现异常
+        deserialize_stream.str(file_value);
+
+        char date_value[15];
+        deserialize_stream >> date_value;
+        if (!deserialize_stream || !deserialize_stream.eof()) {
+          errmsg << "need an date but got '" << file_values[i] 
+                 << "' (field index:" << i << ")";
+
+          rc = RC::SCHEMA_FIELD_TYPE_MISMATCH;
+        } else {
+          value_init_date(&record_values[i], date_value);
+        }
+      }break;
       default: {
         errmsg << "Unsupported field type to loading: " << field->type();
         rc = RC::SCHEMA_FIELD_TYPE_MISMATCH;
       }
       break;
+      
     }
   }
 

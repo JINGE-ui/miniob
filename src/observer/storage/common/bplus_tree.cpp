@@ -159,7 +159,7 @@ static int CmpRid(const RID *rid1, const RID *rid2) {
   return 0;
 }
 int CompareKey(const char *pdata, const char *pkey,AttrType attr_type,int attr_length) { // 简化
-  int i1,i2;
+  int i1,i2,d1,d2;
   float f1,f2;
   const char *s1,*s2;
   switch(attr_type){
@@ -184,6 +184,18 @@ int CompareKey(const char *pdata, const char *pkey,AttrType attr_type,int attr_l
       s1 = pdata;
       s2 = pkey;
       return strncmp(s1, s2, attr_length);
+    }
+      break;
+    case DATES:
+    {
+      d1 = *(int *) pdata;
+      d2 = *(int *) pkey;
+      if (d1 > d2)
+        return 1;
+      if (d1 < d2)
+        return -1;
+      if (d1 == d2)
+        return 0;
     }
       break;
     default:{

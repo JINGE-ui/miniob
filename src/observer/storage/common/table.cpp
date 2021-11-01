@@ -227,11 +227,33 @@ RC Table::insert_record(Trx* trx, Record* record) {
     }
     return rc;
 }
+bool Table::check_date(const Value value){
+  int date = *(int *)value.data;
+  int year = date/10000;
+  int month = date/100-year*100;
+  int datetime = date-10000*year-100*month;
+       //LOG_INFO("The date is:%d,%d,%d",year,month,datetime);
+  int Month_buf[12] = { 31,28,31,30,31,30,31,31,30,31,30,31 };  //月份修正表
+  if(month==2)                                                             //闰年2月+1天
+    (((year%4==0)&&(year%100!=0))||(year%400==0))?Month_buf[1]+=1:Month_buf[1];
+  if (month>12||month<1||datetime>Month_buf[month-1]||datetime<1)           //判断月份日期是否合法
+    return false;
+  return true;
+}
 
 RC Table::insert_record(Trx* trx, int value_num, const Value* values) {
     if (value_num <= 0 || nullptr == values) {
         LOG_ERROR("Invalid argument. value num=%d, values=%p", value_num, values);
         return RC::INVALID_ARGUMENT;
+    }
+    /*BY:CAQ 遍历values,查找type是DATES的value，进行value验证*/
+    int i;
+    for(i=0;i<value_num;i++){
+      const Value &value = values[i];
+      if(value.type == DATES){
+        if(check_date(value)==false)
+            return RC::INVALID_ARGUMENT;
+     }
     }
 
     char* record_data;
@@ -354,10 +376,10 @@ RC Table::scan_record(Trx *trx, ConditionFilter *filter, int limit, std::vector<
     return scan_record_by_index(trx, index_scanner, filter, limit, ridlist);
   }
   
-  LOG_INFO("There is no index to use!");
+  //LOG_INFO("There is no index to use!");
   RC rc = RC::SUCCESS;
   RecordFileScanner scanner;
-  LOG_INFO("The open_scan file_id_= %d",file_id_);
+  //LOG_INFO("The open_scan file_id_= %d",file_id_);
   rc = scanner.open_scan(*data_buffer_pool_, file_id_, filter);
   if (rc != RC::SUCCESS) {
     LOG_ERROR("failed to open scanner. file id=%d. rc=%d:%s", file_id_, rc, strrc(rc));
@@ -699,10 +721,16 @@ RC Table::update_record(Trx *trx, const char *attribute_name, const Value *value
     return RC::SCHEMA_FIELD_MISSING;
   }
   //检查attribute字段类型是否相同
-  else if(field_meta->type() != value->type){
+  if(field_meta->type() != value->type){
     LOG_ERROR("Invalid value type. field name=%s, type=%d, but given=%d",
     field_meta->name(), field_meta->type(), value->type);
     return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+  }
+  //如果value是DATES，需要检查合法性
+  if(value->type==DATES){
+    if(check_date(*value)==false){
+      return RC::INVALID_ARGUMENT;
+    }
   }
   //获得偏移量和value长度
   int attr_offset = field_meta->offset();

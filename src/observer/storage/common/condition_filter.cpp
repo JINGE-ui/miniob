@@ -40,7 +40,7 @@ DefaultConditionFilter::~DefaultConditionFilter()
 
 RC DefaultConditionFilter::init(const ConDesc &left, const ConDesc &right, AttrType attr_type, CompOp comp_op)
 {
-  if (attr_type < CHARS || attr_type > FLOATS) {
+  if (attr_type < CHARS || attr_type > DATES) {
     LOG_ERROR("Invalid condition with unsupported attribute type: %d", attr_type);
     return RC::INVALID_ARGUMENT;
   }
@@ -55,6 +55,18 @@ RC DefaultConditionFilter::init(const ConDesc &left, const ConDesc &right, AttrT
   attr_type_ = attr_type;
   comp_op_ = comp_op;
   return RC::SUCCESS;
+}
+
+bool DefaultConditionFilter::check_date(int date){
+  int year = date/10000;
+  int month = date/100-year*100;
+  int datetime = date-10000*year-100*month;
+  int Month_buf[12] = { 31,28,31,30,31,30,31,31,30,31,30,31 };  //月份修正表
+  if(month==2)                                                             //闰年2月+1天
+    (((year%4==0)&&(year%100!=0))||(year%400==0))?Month_buf[1]+=1:Month_buf[1];
+  if (month>12||month<1||datetime>Month_buf[month-1]||datetime<1)           //判断月份日期是否合法
+    return false;
+  return true;
 }
 
 //新增的init重载函数，基本没变，只加了offset
@@ -199,6 +211,16 @@ RC DefaultConditionFilter::init(Table &table, const Condition &condition)
   if (type_left != type_right) {
     return RC::SCHEMA_FIELD_TYPE_MISMATCH;
   }
+  // By:CAQ
+  // 校验DATES类型的value是否合法
+  if(left.is_attr == false && type_left == DATES){
+    if(check_date(*(int *)(left.value))==false)
+      return RC::INVALID_ARGUMENT;
+  }
+  if(right.is_attr == false && type_right == DATES){
+    if(check_date(*(int *)(right.value))==false)
+      return RC::INVALID_ARGUMENT;
+  }
 
   return init(left, right, type_left, condition.comp);
 }
@@ -238,6 +260,11 @@ bool DefaultConditionFilter::filter(const Record &rec) const
       float right = *(float *)right_value;
       cmp_result = (int)(left - right);
     } break;
+    case DATES: {
+      int left = *(int *)left_value;
+      int right = *(int *)right_value;
+      cmp_result = left - right;
+    }break;   
     default: {
     }
   }

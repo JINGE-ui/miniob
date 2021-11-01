@@ -83,6 +83,7 @@ ParserContext *get_context(yyscan_t scanner)
         INT_T
         STRING_T
         FLOAT_T
+		DATE_T
         HELP
         EXIT
         DOT //QUOTE
@@ -107,6 +108,7 @@ ParserContext *get_context(yyscan_t scanner)
   struct _Attr *attr;
   struct _Condition *condition1;
   struct _Value *value1;
+  char *datestr;
   char *string;
   int number;
   float floats;
@@ -118,6 +120,7 @@ ParserContext *get_context(yyscan_t scanner)
 %token <string> ID
 %token <string> PATH
 %token <string> SSS
+%token <string> DATE;
 %token <string> STAR
 %token <string> STRING_V
 //非终结符
@@ -268,6 +271,7 @@ type:
 	INT_T { $$=INTS; }
        | STRING_T { $$=CHARS; }
        | FLOAT_T { $$=FLOATS; }
+	   | DATE_T {$$=DATES;}
        ;
 ID_get:
 	ID 
@@ -312,8 +316,11 @@ value:
 			$1 = substr($1,1,strlen($1)-2);
   		value_init_string(&CONTEXT->values[CONTEXT->value_length++], $1);
 		}
-    ;
-    
+	|DATE{
+		    $1 = substr($1,1,strlen($1)-2);
+		value_init_date(&CONTEXT->values[CONTEXT->value_length++], $1);
+		}    
+    ;    
 delete:		/*  delete 语句的语法解析树*/
     DELETE FROM ID where SEMICOLON 
 		{

@@ -36,7 +36,7 @@ See the Mulan PSL v2 for more details. */
 #include<algorithm>
 
 using namespace common;
-using namespace std;
+
 //by xiayuan：元数据校验，用于验证where子句的每一个条件的左右部分是否有table来匹配，1表存在匹配，0表不存在并返回错误
 std::vector<int>condition_match;
 

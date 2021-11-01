@@ -42,7 +42,7 @@ public:
   void add(int value);
   void add(float value);
   void add(const char *s, int len);
-
+  void addDate(int value);
   const std::vector<std::shared_ptr<TupleValue>> &values() const {
     return values_;
   }
@@ -112,7 +112,7 @@ public:
 
   void print(std::ostream &os) const;
 
-  //for select tables£ºÔö¼Ó²ÎÊýtable_num
+  //for select tablesï¿½ï¿½ï¿½ï¿½ï¿½Ó²ï¿½ï¿½ï¿½table_num
   void print(std::ostream& os, int table_num) const;
 
 public:
@@ -145,7 +145,7 @@ public:
   const std::vector<Tuple> &tuples() const;
 
   void print(std::ostream &os) const;
-  //for select tables£ºÔö¼Ó²ÎÊýtable_num
+  //for select tablesï¿½ï¿½ï¿½ï¿½ï¿½Ó²ï¿½ï¿½ï¿½table_num
   void print(std::ostream& os, int table_num) const;
 
 public:
@@ -165,7 +165,7 @@ public:
 
   /*
   for: select tables
-  ²ÎÊýtable_map_offset£º£¨±ítable£¬ËüÔÚ¶à±í×öµÑ¿¨¶û»ýºóµÄ¼ÇÂ¼recordÖÐµÄÆ«ÒÆÁ¿£©
+  ï¿½ï¿½ï¿½ï¿½table_map_offsetï¿½ï¿½ï¿½ï¿½ï¿½ï¿½tableï¿½ï¿½ï¿½ï¿½ï¿½Ú¶ï¿½ï¿½ï¿½ï¿½ï¿½Ñ¿ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½Â¼recordï¿½Ðµï¿½Æ«ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
   */
   void add_record(const char* record, const char* db, const unordered_map<string, int> &table_map_offset);
 private:

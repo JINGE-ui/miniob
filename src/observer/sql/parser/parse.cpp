@@ -52,6 +52,43 @@ void value_init_string(Value *value, const char *v) {
   value->type = CHARS;
   value->data = strdup(v);
 }
+/*By:CAQ
+* 用于将字符串转为年月日的int型，传入str_date中
+* 不进行日期的合法性校验
+*/
+void str2date(const char *str,int * int_date){
+	int i;
+	int total=0,get = 0;
+  int year,month,datetime;
+	for(i=0;str[i]!='\0';i++){
+		if(str[i]!='-'){
+			total *=10;
+			total += str[i]+0-'0';
+			//printf("%d\n",total);
+		}
+		else{
+			if(get==0){
+				year= total;
+			}
+			else if(get==1){
+				month = total;
+			}
+			total = 0;
+			get++;
+		}
+	}
+	datetime = total;
+  *int_date = year*10000+month*100+datetime;
+	return ;
+}
+/*By:CAQ*/
+void value_init_date(Value *value, const char *v){
+  LOG_INFO("This is a Date!:%s\n",v);
+  value->type = DATES;
+  value->data = malloc(sizeof(int));
+  str2date(v,(int *)(value -> data));
+  LOG_INFO("The Date storage is :%d\n",*(int *)(value->data));
+}
 void value_destroy(Value *value) {
   value->type = UNDEFINED;
   free(value->data);

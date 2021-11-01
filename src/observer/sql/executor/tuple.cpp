@@ -54,6 +54,10 @@ void Tuple::add(float value) {
   add(new FloatValue(value));
 }
 
+void Tuple::addDate(int value){
+  add(new DateValue(value));
+}
+
 void Tuple::add(const char *s, int len) {
   add(new StringValue(s, len));
 }
@@ -196,6 +200,7 @@ void TupleSet::print(std::ostream& os, int table_num) const {
         const std::vector<std::shared_ptr<TupleValue>>& values = item.values();
         for (std::vector<std::shared_ptr<TupleValue>>::const_iterator iter = values.begin(), end = --values.end();
             iter != end; ++iter) {
+            LOG_INFO("print it\n");
             (*iter)->to_string(os);
             os << " | ";
         }
@@ -294,6 +299,11 @@ void TupleRecordConverter::add_record(const char* record, const char* db, const 
             tuple.add(s, strlen(s));
         }
                   break;
+        case DATES:{
+            int value = *(int*)(record + field_meta->offset());
+            tuple.addDate(value);
+       }
+                  break;
         default: {
             LOG_PANIC("Unsupported field type. type=%d", field_meta->type());
         }
@@ -323,6 +333,11 @@ void TupleRecordConverter::add_record(const char *record) {
       case CHARS: {
         const char *s = record + field_meta->offset();  // 现在当做Cstring来处理
         tuple.add(s, strlen(s));
+      }
+      break;
+      case DATES:{
+        int value = *(int*)(record + field_meta->offset());
+        tuple.addDate(value);
       }
       break;
       default: {

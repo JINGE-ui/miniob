@@ -91,5 +91,38 @@ private:
   std::string value_;
 };
 
+class DateValue : public TupleValue {
+public:
+  explicit DateValue(int value) : value_(value) {
+  }
+
+  void to_string(std::ostream &os) const override {
+    std::string datestr;
+    int year = value_/10000;
+    int month = value_/100-year*100;
+    int datetime = value_-10000*year-100*month;
+    bool madd0 = month > 9 ? 0:1;
+    bool dadd0 = datetime > 9 ? 0:1;
+    if(madd0)
+      datestr = std::to_string(year) + "-0" + std::to_string(month);
+    else 
+      datestr = std::to_string(year) + "-" + std::to_string(month);
+    if(dadd0)
+      datestr += "-0" + std::to_string(datetime);
+    else
+      datestr += "-" + std::to_string(datetime);
+    os << datestr;
+  }
+
+  int compare(const TupleValue &other) const override {
+    const DateValue & int_other = (const DateValue &)other;
+    return value_ - int_other.value_;
+  }
+
+private:
+  int value_;
+
+};
+
 
 #endif //__OBSERVER_SQL_EXECUTOR_VALUE_H_
