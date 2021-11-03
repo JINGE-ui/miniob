@@ -260,6 +260,7 @@ void DefaultStorageStage::handle_event(StageEvent *event) {
   }
 
   if (rc == RC::SUCCESS && !session->is_trx_multi_operation_mode()) {
+    //LOG_INFO("will it be here?yes...\n");
     rc = current_trx->commit();
     if (rc != RC::SUCCESS) {
       LOG_ERROR("Failed to commit trx. rc=%d:%s", rc, strrc(rc));
@@ -367,9 +368,9 @@ RC insert_record_from_file(Table *table, std::vector<std::string> &file_values,
       
     }
   }
-
+  Record record;
   if (RC::SUCCESS == rc) {
-    rc = table->insert_record(nullptr, field_num, record_values.data());
+    rc = table->insert_record(nullptr, field_num, record_values.data(), &record);
     if (rc != RC::SUCCESS) {
       errmsg << "insert failed.";
     }

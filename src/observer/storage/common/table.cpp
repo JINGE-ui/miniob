@@ -247,17 +247,35 @@ RC Table::insert_record(Trx* trx, int insert_num, Tuplevalue *const tuplevalue [
         LOG_ERROR("Invalid argument. value num=%d, values=%p", insert_num, tuplevalue);
         return RC::INVALID_ARGUMENT;
     }
-    int i;
+    int i,j;
+    //这里有点不对，希望的是如果遇到插入失败的，需要将之前的插入成功的记录全部删除
+    std::vector<RID> ridlist;
+    Record record;
+    RC rc2;
     for(i=0;i<insert_num;i++){
-        rc = insert_record(trx,tuplevalue[i]->value_num,tuplevalue[i]->values);
-        if(rc != RC::SUCCESS)
+        rc = insert_record(nullptr,tuplevalue[i]->value_num,tuplevalue[i]->values,&record);
+        if(rc == RC::SUCCESS){
+            LOG_INFO("the ridlist add rid : %d,%d",record.rid.page_num,record.rid.slot_num);
+            ridlist.push_back(record.rid);
+        }
+        else{
+            for(int j=0;j<ridlist.size();j++){
+                rc2 = record_handler_->get_record(&ridlist[j], &record);
+                LOG_INFO("delete the record whose rid is: %d,%d",record.rid.page_num,record.rid.slot_num);
+                rc2 = delete_record(nullptr,&record);
+                if (rc2 != RC::SUCCESS) {
+                    LOG_ERROR("Rollback: delete record failed. table name=%s, rc=%d:%s", table_meta_.name(), rc, strrc(rc));
+                    return rc;
+                }
+            }
             return RC::INVALID_ARGUMENT;
+        }         
     }
     return rc;
 }
 
 
-RC Table::insert_record(Trx* trx, int value_num, const Value* values) {
+RC Table::insert_record(Trx* trx, int value_num, const Value* values,Record *record) {
     if (value_num <= 0 || nullptr == values) {
         LOG_ERROR("Invalid argument. value num=%d, values=%p", value_num, values);
         return RC::INVALID_ARGUMENT;
@@ -279,10 +297,10 @@ RC Table::insert_record(Trx* trx, int value_num, const Value* values) {
         return rc;
     }
 
-    Record record;
-    record.data = record_data;
+    record->data = record_data;
     // record.valid = true;
-    rc = insert_record(trx, &record);
+    rc = insert_record(trx, record);
+    LOG_INFO("insert the record:the rid is %d,%d",record->rid.page_num,record->rid.slot_num);
     delete[] record_data;
     return rc;
 }
@@ -882,6 +900,7 @@ RC Table::delete_record(Trx* trx, Record* record) {
                 record->rid.page_num, record->rid.slot_num, rc, strrc(rc));
         }
         else {
+            //LOG_INFO("come to here?");
             rc = record_handler_->delete_record(&record->rid);
         }
     }
