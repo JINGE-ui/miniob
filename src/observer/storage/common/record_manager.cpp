@@ -207,7 +207,7 @@ RC RecordPageHandler::update_record(const Record *rec) {
 
 RC RecordPageHandler::delete_record(const RID *rid) {
   RC ret = RC::SUCCESS;
-
+  LOG_INFO("PageHandler delete record:%d:%d",rid->page_num,rid->slot_num);
   if (rid->slot_num >= page_header_->record_capacity) {
     LOG_ERROR("Invalid slot_num %d, exceed page's record capacity, file_id:page_num %d:%d.",
               rid->slot_num,
