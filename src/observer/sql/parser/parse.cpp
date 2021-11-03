@@ -52,6 +52,7 @@ void value_init_string(Value *value, const char *v) {
   value->type = CHARS;
   value->data = strdup(v);
 }
+
 /*By:CAQ
 * 用于将字符串转为年月日的int型，传入str_date中
 * 不进行日期的合法性校验
@@ -170,23 +171,35 @@ void selects_destroy(Selects *selects) {
   selects->condition_num = 0;
 }
 
-void inserts_init(Inserts *inserts, const char *relation_name, Value values[], size_t value_num) {
-  assert(value_num <= sizeof(inserts->values)/sizeof(inserts->values[0]));
+void inserts_init(Inserts *inserts, const char *relation_name) {
+  //assert(value_num <= sizeof(inserts->insert_values)/sizeof(inserts->insert_values[0]));
 
   inserts->relation_name = strdup(relation_name);
-  for (size_t i = 0; i < value_num; i++) {
-    inserts->values[i] = values[i];
-  }
-  inserts->value_num = value_num;
 }
+
+void insert_tuplevalue_init(Inserts *inserts, Value values[], size_t tuplev_begin, size_t value_num){
+  int i;
+  //LOG_INFO("insert_tuplevalue_init:The value length is %d\n",value_num);
+  Tuplevalue * newtuple = new Tuplevalue;
+  newtuple->value_num = value_num-tuplev_begin;
+  for(i=0;i<newtuple->value_num;i++){
+    newtuple->values[i] = values[tuplev_begin+i];
+  }
+  inserts->insert_values[inserts->insert_num++] = newtuple;
+}
+
+
 void inserts_destroy(Inserts *inserts) {
   free(inserts->relation_name);
   inserts->relation_name = nullptr;
-
-  for (size_t i = 0; i < inserts->value_num; i++) {
-    value_destroy(&inserts->values[i]);
+  for(size_t i=0;i<inserts->insert_num;i++){
+    for(size_t j=0;j<inserts->insert_values[i]->value_num;j++){
+      value_destroy(&(inserts->insert_values[i]->values[j]));
+    }
+    free(inserts->insert_values[i]);
+    inserts->insert_values[i]=nullptr;
   }
-  inserts->value_num = 0;
+  inserts->insert_num = 0;
 }
 
 void deletes_init_relation(Deletes *deletes, const char *relation_name) {

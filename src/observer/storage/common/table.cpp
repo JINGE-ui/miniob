@@ -241,6 +241,22 @@ bool Table::check_date(const Value value){
   return true;
 }
 
+RC Table::insert_record(Trx* trx, int insert_num, Tuplevalue *const tuplevalue []) {
+    RC rc = RC::SUCCESS;
+    if (insert_num <= 0 || nullptr == tuplevalue) {
+        LOG_ERROR("Invalid argument. value num=%d, values=%p", insert_num, tuplevalue);
+        return RC::INVALID_ARGUMENT;
+    }
+    int i;
+    for(i=0;i<insert_num;i++){
+        rc = insert_record(trx,tuplevalue[i]->value_num,tuplevalue[i]->values);
+        if(rc != RC::SUCCESS)
+            return RC::INVALID_ARGUMENT;
+    }
+    return rc;
+}
+
+
 RC Table::insert_record(Trx* trx, int value_num, const Value* values) {
     if (value_num <= 0 || nullptr == values) {
         LOG_ERROR("Invalid argument. value num=%d, values=%p", value_num, values);
@@ -373,6 +389,7 @@ RC Table::scan_record(Trx *trx, ConditionFilter *filter, int limit, std::vector<
   
   IndexScanner *index_scanner = find_index_for_scan(filter);
   if (index_scanner != nullptr) {
+      LOG_INFO("There is a index to use!");
     return scan_record_by_index(trx, index_scanner, filter, limit, ridlist);
   }
   

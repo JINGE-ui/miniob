@@ -174,7 +174,7 @@ void DefaultStorageStage::handle_event(StageEvent *event) {
   case SCF_INSERT: { // insert into
       const Inserts &inserts = sql->sstr.insertion;
       const char *table_name = inserts.relation_name;
-      rc = handler_->insert_record(current_trx, current_db, table_name, inserts.value_num, inserts.values);
+      rc = handler_->insert_record(current_trx, current_db, table_name, inserts.insert_num, inserts.insert_values);
       snprintf(response, sizeof(response), "%s\n", rc == RC::SUCCESS ? "SUCCESS" : "FAILURE");
     }
     break;
@@ -324,7 +324,6 @@ RC insert_record_from_file(Table *table, std::vector<std::string> &file_values,
           value_init_integer(&record_values[i], int_value);
         }
       }
-
       break;
       case FLOATS: {
         deserialize_stream.clear();

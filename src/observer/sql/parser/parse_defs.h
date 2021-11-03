@@ -70,11 +70,17 @@ typedef struct {
   Condition conditions[MAX_NUM];    // conditions in Where clause
 } Selects;
 
+// struct of insert tuple
+typedef struct {
+  size_t value_num;       // Length of values
+  Value values[MAX_NUM];  // values to insert
+} Tuplevalue;
+
 // struct of insert
 typedef struct {
   char *relation_name;    // Relation to insert into
-  size_t value_num;       // Length of values
-  Value values[MAX_NUM];  // values to insert
+  size_t insert_num;      //number of records to insert
+  Tuplevalue * insert_values[MAX_NUM]; //the tuplevalue of record
 } Inserts;
 
 // struct of delete
@@ -198,10 +204,10 @@ void selects_append_attribute(Selects *selects, RelAttr *rel_attr);
 void selects_append_relation(Selects *selects, const char *relation_name);
 void selects_append_conditions(Selects *selects, Condition conditions[], size_t condition_num);
 void selects_destroy(Selects *selects);
-
-void inserts_init(Inserts *inserts, const char *relation_name, Value values[], size_t value_num);
+void insert_print(int num);
+void inserts_init(Inserts *inserts, const char *relation_name);
 void inserts_destroy(Inserts *inserts);
-
+void insert_tuplevalue_init(Inserts *inserts, Value values[], size_t tuplev_begin, size_t value_num);
 void deletes_init_relation(Deletes *deletes, const char *relation_name);
 void deletes_set_conditions(Deletes *deletes, Condition conditions[], size_t condition_num);
 void deletes_destroy(Deletes *deletes);
