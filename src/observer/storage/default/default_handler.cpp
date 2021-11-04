@@ -218,13 +218,13 @@ RC DefaultHandler::drop_index(Trx *trx, const char *dbname, const char *relation
   return RC::SUCCESS;
 }
 
-RC DefaultHandler::insert_record(Trx *trx, const char *dbname, const char *relation_name, int value_num, const Value *values) {
+RC DefaultHandler::insert_record(Trx *trx, const char *dbname, const char *relation_name, int insert_num, Tuplevalue *const tuplevalue []) {
   Table *table = find_table(dbname, relation_name);
   if (nullptr == table) {
     return RC::SCHEMA_TABLE_NOT_EXIST;
   }
 
-  return table->insert_record(trx, value_num, values);
+  return table->insert_record(trx, insert_num, tuplevalue);
 }
 RC DefaultHandler::delete_record(Trx *trx, const char *dbname, const char *relation_name,
                                  int condition_num, const Condition *conditions, int *deleted_count) {

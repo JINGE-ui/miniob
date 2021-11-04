@@ -174,7 +174,7 @@ void DefaultStorageStage::handle_event(StageEvent *event) {
   case SCF_INSERT: { // insert into
       const Inserts &inserts = sql->sstr.insertion;
       const char *table_name = inserts.relation_name;
-      rc = handler_->insert_record(current_trx, current_db, table_name, inserts.value_num, inserts.values);
+      rc = handler_->insert_record(current_trx, current_db, table_name, inserts.insert_num, inserts.insert_values);
       snprintf(response, sizeof(response), "%s\n", rc == RC::SUCCESS ? "SUCCESS" : "FAILURE");
     }
     break;
@@ -260,6 +260,7 @@ void DefaultStorageStage::handle_event(StageEvent *event) {
   }
 
   if (rc == RC::SUCCESS && !session->is_trx_multi_operation_mode()) {
+    //LOG_INFO("will it be here?yes...\n");
     rc = current_trx->commit();
     if (rc != RC::SUCCESS) {
       LOG_ERROR("Failed to commit trx. rc=%d:%s", rc, strrc(rc));
@@ -324,7 +325,6 @@ RC insert_record_from_file(Table *table, std::vector<std::string> &file_values,
           value_init_integer(&record_values[i], int_value);
         }
       }
-
       break;
       case FLOATS: {
         deserialize_stream.clear();
@@ -368,9 +368,9 @@ RC insert_record_from_file(Table *table, std::vector<std::string> &file_values,
       
     }
   }
-
+  Record record;
   if (RC::SUCCESS == rc) {
-    rc = table->insert_record(nullptr, field_num, record_values.data());
+    rc = table->insert_record(nullptr, field_num, record_values.data(), &record);
     if (rc != RC::SUCCESS) {
       errmsg << "insert failed.";
     }

@@ -241,7 +241,42 @@ bool Table::check_date(const Value value){
   return true;
 }
 
-RC Table::insert_record(Trx* trx, int value_num, const Value* values) {
+RC Table::insert_record(Trx* trx, int insert_num, Tuplevalue *const tuplevalue []) {
+    RC rc = RC::SUCCESS;
+    if (insert_num <= 0 || nullptr == tuplevalue) {
+        LOG_ERROR("Invalid argument. value num=%d, values=%p", insert_num, tuplevalue);
+        return RC::INVALID_ARGUMENT;
+    }
+    int i,j;
+    //如果遇到插入失败的，需要将之前的插入成功的记录全部删除
+    std::vector<RID> ridlist;
+    Record record;
+    RC rc2;
+    for(i=0;i<insert_num;i++){
+        rc = insert_record(trx,tuplevalue[i]->value_num,tuplevalue[i]->values,&record);
+        if(rc == RC::SUCCESS){
+            LOG_INFO("the ridlist add rid : %d,%d",record.rid.page_num,record.rid.slot_num);
+            rc = trx->commit();//这是个神奇的操作，希望能有用
+            ridlist.push_back(record.rid);
+        }
+        else{
+            for(int j=0;j<ridlist.size();j++){
+                rc2 = record_handler_->get_record(&ridlist[j], &record);
+                LOG_INFO("delete the record whose rid is: %d,%d",record.rid.page_num,record.rid.slot_num);
+                rc2 = delete_record(trx,&record);
+                if (rc2 != RC::SUCCESS) {
+                    LOG_ERROR("Rollback: delete record failed. table name=%s, rc=%d:%s", table_meta_.name(), rc, strrc(rc));
+                    return rc;
+                }
+            }
+            return RC::INVALID_ARGUMENT;
+        }         
+    }
+    return rc;
+}
+
+
+RC Table::insert_record(Trx* trx, int value_num, const Value* values,Record *record) {
     if (value_num <= 0 || nullptr == values) {
         LOG_ERROR("Invalid argument. value num=%d, values=%p", value_num, values);
         return RC::INVALID_ARGUMENT;
@@ -263,10 +298,10 @@ RC Table::insert_record(Trx* trx, int value_num, const Value* values) {
         return rc;
     }
 
-    Record record;
-    record.data = record_data;
+    record->data = record_data;
     // record.valid = true;
-    rc = insert_record(trx, &record);
+    rc = insert_record(trx, record);
+    LOG_INFO("insert the record:the rid is %d,%d",record->rid.page_num,record->rid.slot_num);
     delete[] record_data;
     return rc;
 }
@@ -373,6 +408,7 @@ RC Table::scan_record(Trx *trx, ConditionFilter *filter, int limit, std::vector<
   
   IndexScanner *index_scanner = find_index_for_scan(filter);
   if (index_scanner != nullptr) {
+      LOG_INFO("There is a index to use!");
     return scan_record_by_index(trx, index_scanner, filter, limit, ridlist);
   }
   
@@ -438,7 +474,9 @@ RC Table::scan_record(Trx *trx, ConditionFilter *filter, int limit, void *contex
   int record_count = 0;
   Record record;
   rc = scanner.get_first_record(&record);
+  LOG_INFO("The first_record is %d:%d",record.rid.page_num,record.rid.slot_num);
   for ( ; RC::SUCCESS == rc && record_count < limit; rc = scanner.get_next_record(&record)) {
+    LOG_INFO("The record is visible:%d",trx->is_visible(this, &record));
     if (trx == nullptr || trx->is_visible(this, &record)) {
       rc = record_reader(&record, context);
       if (rc != RC::SUCCESS) {
@@ -783,37 +821,6 @@ RC Table::update_record(Trx *trx, const char *attribute_name, const Value *value
   }
   return rc;
 }
-/*
-/*主要的update函数
-RC Table::update_record(Trx *trx, int attr_offset, int attr_len, const Value *value, Record *record){
-  RC rc = RC::SUCCESS;
-  //获得新的record数据
-  //先把原来的record数据复制到record_data
-  //再根据offset更新对应的value
-  Record new_record;
-  int record_size = table_meta_.record_size();
-  char *record_data = new char [record_size];
-  memcpy(record_data,record->data,record_size);
-  memcpy(record_data + attr_offset, value->data, attr_len);
-  new_record.data = record_data;
-  //删除原来的record
-  rc = delete_record(trx,record);
-  if (rc != RC::SUCCESS) {
-    LOG_ERROR("Update record failed. table name=%s, rc=%d:%s", table_meta_.name(), rc, strrc(rc));
-    return rc;
-  }
-  LOG_INFO("Delete the original record!");
-  //插入新的record
-  rc = insert_record(trx,&new_record);
-  delete[] record_data;
-  if (rc != RC::SUCCESS) {
-    LOG_ERROR("Update record failed. table name=%s, rc=%d:%s", table_meta_.name(), rc, strrc(rc));
-    return rc;
-  }
-  LOG_INFO("Insert the new record!");
-  return rc;
-}*/
-
 
 class RecordDeleter {
 public:
@@ -858,7 +865,7 @@ RC Table::delete_record(Trx* trx, Record* record) {
     if (trx != nullptr) {
         rc = trx->delete_record(this, record);
     }
-    else {
+    else {           
         rc = delete_entry_of_indexes(record->data, record->rid, false);// 重复代码 refer to commit_delete
         if (rc != RC::SUCCESS) {
             LOG_ERROR("Failed to delete indexes of record (rid=%d.%d). rc=%d:%s",
