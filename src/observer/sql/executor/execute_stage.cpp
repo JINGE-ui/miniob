@@ -568,21 +568,27 @@ RC aggregation_func(Trx* trx, const Selects& selects, const char* db, const char
             }break;
             case MAX_AGG: {
                 const FieldMeta* field_meta = table->table_meta().field(attr.attribute_name);
-                assert(field_meta != nullptr);
+                if (field_meta == nullptr) {
+                    return RC::GENERIC_ERROR;
+                }
                 if (get_max_aggregation(field_meta, tuple) != RC::SUCCESS) {
                     return RC::GENERIC_ERROR;
                 }
             }break;
             case MIN_AGG: {
                 const FieldMeta* field_meta = table->table_meta().field(attr.attribute_name);
-                assert(field_meta != nullptr);
+                if (field_meta == nullptr) {
+                    return RC::GENERIC_ERROR;
+                }
                 if (get_min_aggregation(field_meta, tuple) != RC::SUCCESS) {
                     return RC::GENERIC_ERROR;
                 }
             }break;
             case AVG_AGG: {
                 const FieldMeta* field_meta = table->table_meta().field(attr.attribute_name);
-                assert(field_meta != nullptr);
+                if (field_meta == nullptr) {
+                    return RC::GENERIC_ERROR;
+                }
                 if (get_avg_aggregation(field_meta, tuple) != RC::SUCCESS) {
                     return RC::GENERIC_ERROR;
                 }
