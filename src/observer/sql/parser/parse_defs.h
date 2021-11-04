@@ -39,6 +39,23 @@ typedef enum {
   NO_OP
 } CompOp;
 
+
+//聚合运算类型 by XY:
+typedef enum{
+  COUNT_AGG=10,
+  MIN_AGG,
+  MAX_AGG,
+  AVG_AGG,
+  NONE_AGG
+}AggregationOp;
+
+//聚合运算结构体 by XY:
+typedef struct {
+  RelAttr attr;
+  AggregationOp comp;
+}Aggregation;
+
+
 //属性值类型
 typedef enum { UNDEFINED, CHARS, INTS, FLOATS, DATES} AttrType;
 
@@ -62,6 +79,8 @@ typedef struct _Condition {
 
 // struct of select
 typedef struct {
+  size_t aggregation_num;    //聚合运算的个数  by XY
+  Aggregation aggregations[MAX_NUM];   //聚合运算的数组  by XY
   size_t    attr_num;               // Length of attrs in Select clause
   RelAttr   attributes[MAX_NUM];    // attrs in Select clause
   size_t    relation_num;           // Length of relations in Fro clause
@@ -234,6 +253,11 @@ void query_init(Query *query);
 Query *query_create();  // create and init
 void query_reset(Query *query);
 void query_destroy(Query *query);  // reset and delete
+
+
+//by XY
+void selects_append_aggregation(Selects *selects, Aggregation *agg_attr);
+void aggregation_init(Aggregation* aggr_attr, RelAttr *relation_attr, AggregationOp comp);
 
 #ifdef __cplusplus
 }

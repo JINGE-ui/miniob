@@ -19,6 +19,7 @@ typedef struct ParserContext {
   Value values[MAX_NUM];
   Condition conditions[MAX_NUM];
   CompOp comp;
+  AggregationOp aggcomp;
 	char id[MAX_NUM];
 } ParserContext;
 
@@ -103,6 +104,10 @@ ParserContext *get_context(yyscan_t scanner)
         LE
         GE
         NE
+		COUNT
+		MAX
+		MIN
+		AVG
 
 %union {
   struct _Attr *attr;
@@ -376,7 +381,41 @@ select_attr:
 			relation_attr_init(&attr, $1, $3);
 			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
 		}
-    ;
+	| aggr_attr aggr_attr_list{
+
+	}
+	;
+aggr_attr:
+	AggregationOp LBRACE STAR RBRACE {
+		RelAttr attr;
+		Aggregation aggr_attr;
+		relation_attr_init(&attr, NULL, "*");
+		aggregation_init(&aggr_attr,&attr,CONTEXT->aggcomp);
+		selects_append_aggregation(&CONTEXT->ssql->sstr.selection,&aggr_attr);
+	}
+	| AggregationOp LBRACE ID RBRACE {   
+		RelAttr attr;
+		Aggregation aggr_attr;
+		relation_attr_init(&attr, NULL, $3);
+		aggregation_init(&aggr_attr,&attr,CONTEXT->aggcomp);
+		selects_append_aggregation(&CONTEXT->ssql->sstr.selection,&aggr_attr);
+	}
+	| AggregationOp LBRACE ID DOT ID RBRACE {
+		RelAttr attr;
+		Aggregation aggr_attr;
+		relation_attr_init(&attr, $3, $5);
+		aggregation_init(&aggr_attr,&attr,CONTEXT->aggcomp);
+		selects_append_aggregation(&CONTEXT->ssql->sstr.selection,&aggr_attr);
+	}
+	;
+aggr_attr_list:
+	/* empty */
+	| COMMA aggr_attr aggr_attr_list{
+
+	}
+	;
+
+
 attr_list:
     /* empty */
     | COMMA ID attr_list {
@@ -394,6 +433,15 @@ attr_list:
         // CONTEXT->ssql->sstr.selection.attributes[CONTEXT->select_length++].relation_name=$2;
   	  }
   	;
+
+/*聚合运算 by XY*/
+AggregationOp:
+	  COUNT { CONTEXT->aggcomp = COUNT_AGG;}
+	| MAX { CONTEXT->aggcomp = MAX_AGG;}
+	| MIN { CONTEXT->aggcomp = MIN_AGG;}
+	| AVG { CONTEXT->aggcomp = AVG_AGG;}
+	;
+
 
 rel_list:
     /* empty */

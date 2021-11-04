@@ -74,6 +74,10 @@ POZ              \-
 [Ll][Oo][Aa][Dd]			                   RETURN_TOKEN(LOAD);
 [Dd][Aa][Tt][Aa]	                       RETURN_TOKEN(DATA);
 [Ii][Nn][Ff][Ii][Ll][Ee]                 RETURN_TOKEN(INFILE);
+[Cc][Oo][Uu][Nn][Tt]					RETURN_TOKEN(COUNT);
+[Mm][Aa][Xx]							RETURN_TOKEN(MAX);
+[Mm][Ii][Nn]							RETURN_TOKEN(MIN);
+[Aa][Vv][Gg]							RETURN_TOKEN(AVG);
 {ID}							                       yylval->string=strdup(yytext); RETURN_TOKEN(ID);
 "("								                       RETURN_TOKEN(LBRACE);
 ")"								                       RETURN_TOKEN(RBRACE);

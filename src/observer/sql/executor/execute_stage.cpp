@@ -50,8 +50,9 @@ int curtable_record_size = 0;
 
 //
 RC select_tables(Trx* trx, const char* db, const Selects& selects, TupleSet& tuple_set);
-
+RC aggregation_func(Trx* trx, const Selects& selects, const char* db, const char* table_name, TupleSet& tupleset);
 RC create_selection_executor(Trx *trx, const Selects &selects, const char *db, const char *table_name, SelectExeNode &select_node);
+RC get_condition(const Selects& selects, std::vector<DefaultConditionFilter*>& condition_filters, const char* table_name, Table* table);
 
 //! Constructor
 ExecuteStage::ExecuteStage(const char *tag) : Stage(tag) {}
@@ -295,22 +296,41 @@ RC ExecuteStage::do_select(const char *db, Query *sql, SessionEvent *session_eve
   } 
   else if(selects.relation_num == 1) {  //单表查询
         const char* table_name = selects.relations[0];
-        SelectExeNode* select_node = new SelectExeNode;
-        rc = create_selection_executor(trx, selects, db, table_name, *select_node);
-        if (rc != RC::SUCCESS) {
-            delete select_node;
-            //元数据校验，添加错误打印信息，错误有：select的非法列名，from的非法表名，where的非法列名
-            const char* response = "FAILURE\n";
-            session_event->set_response(response);
-            //
-            end_trx_if_need(session, trx, false);
-            return rc;
+        if (selects.aggregation_num > 0) {   //聚合
+            rc = aggregation_func(trx, selects, db, table_name, tuple_set);
+            if (rc != RC::SUCCESS) {
+                //元数据校验，添加错误打印信息，错误有：select的非法列名，from的非法表名，where的非法列名
+                const char* response = "FAILURE\n";
+                session_event->set_response(response);
+                //
+                end_trx_if_need(session, trx, false);
+                return rc;
+            }
         }
-
+        else {
+            SelectExeNode* select_node = new SelectExeNode;
+            rc = create_selection_executor(trx, selects, db, table_name, *select_node);
+            if (rc != RC::SUCCESS) {
+                delete select_node;
+                //元数据校验，添加错误打印信息，错误有：select的非法列名，from的非法表名，where的非法列名
+                const char* response = "FAILURE\n";
+                session_event->set_response(response);
+                //
+                end_trx_if_need(session, trx, false);
+                return rc;
+            }
+            rc = select_node->execute(tuple_set);
+            if (rc != RC::SUCCESS) {
+                delete select_node;
+                end_trx_if_need(session, trx, false);
+                return rc;
+            }
+            delete select_node;
+        }
+        
         //by xiayuan：元数据校验+support单表，where子句中如果有条件未匹配，说明有非法表名
         if ((find(condition_match.begin(), condition_match.end(), 0) != condition_match.end())
             && !condition_match.empty()) {
-            delete select_node;
             //打印错误
             const char* response = "FAILURE\n";
             session_event->set_response(response);
@@ -318,14 +338,7 @@ RC ExecuteStage::do_select(const char *db, Query *sql, SessionEvent *session_eve
             end_trx_if_need(session, trx, false);
             return RC::GENERIC_ERROR;
         }
-        //
-        rc = select_node->execute(tuple_set);
-        if (rc != RC::SUCCESS) {
-            delete select_node;
-            end_trx_if_need(session, trx, false);
-            return rc;
-        }
-        delete select_node;
+        
   }
   else {  //relation_num<1
       LOG_ERROR("No table given");
@@ -361,6 +374,22 @@ bool match_table(const Selects& selects, const char* table_name_in_condition) {
     return true;
 }
 
+//为了支持聚合运算（单表）
+static RC schema_add_field(Table* table, const char* field_name, TupleSchema& schema, AggregationOp comp) {
+    if (strcmp(field_name, "*") == 0) {   //只能是count(*)
+        schema.add_if_not_exists(INTS, table->name(), "*",comp);
+        return RC::SUCCESS;
+    }
+    const FieldMeta* field_meta = table->table_meta().field(field_name);
+    if (nullptr == field_meta) {
+        LOG_WARN("No such field. %s.%s", table->name(), field_name);
+        return RC::SCHEMA_FIELD_MISSING;
+    }
+
+    schema.add_if_not_exists(INTS, table->name(), field_meta->name(),comp);   //type暂时设置为int
+    return RC::SUCCESS;
+}
+
 static RC schema_add_field(Table *table, const char *field_name, TupleSchema &schema) {
   const FieldMeta *field_meta = table->table_meta().field(field_name);
   if (nullptr == field_meta) {
@@ -370,6 +399,236 @@ static RC schema_add_field(Table *table, const char *field_name, TupleSchema &sc
 
   schema.add_if_not_exists(field_meta->type(), table->name(), field_meta->name());
   return RC::SUCCESS;
+}
+
+//计算MAX(id)，暂时不支持DATE类型
+RC get_max_aggregation(const FieldMeta* field_meta, Tuple &tuple) {
+    int offset = field_meta->offset();
+    switch (field_meta->type()) {
+    case INTS: {
+        int max_int = *(int*)(cur_table[0].c_str() + offset);
+        for (string record_str : cur_table) {
+            const char* record = record_str.c_str();
+            int tmp = *(int*)(record + offset);
+            if (tmp > max_int) {
+                max_int = tmp;
+            }
+        }
+        tuple.add(max_int);
+    }break;
+    case FLOATS: {
+        float max_float = *(float*)(cur_table[0].c_str() + offset);
+        for (string record_str : cur_table) {
+            const char* record = record_str.c_str();
+            float tmp = *(float*)(record + offset);
+            if (tmp > max_float) {
+                max_float = tmp;
+            }
+        }
+        tuple.add(max_float);
+    }break;
+    case CHARS: {
+        const char* min_chars = (const char*)(cur_table[0].c_str() + offset);
+        for (string record_str : cur_table) {
+            const char* record = record_str.c_str();
+            const char* tmp = (const char*)(record + offset);
+            if (strcmp(tmp, min_chars) > 0) {   //tmp>max_chars
+                min_chars = tmp;
+            }
+        }
+        tuple.add(min_chars, strlen(min_chars));
+    }break;
+    default: {
+        LOG_PANIC("Unsupported field type. type=%d", field_meta->type());
+        return RC::GENERIC_ERROR;
+    }
+    }
+    return RC::SUCCESS;
+}
+//计算MIN(id)，暂时不支持DATE类型
+RC get_min_aggregation(const FieldMeta* field_meta, Tuple& tuple) {
+    int offset = field_meta->offset();
+    switch (field_meta->type()) {
+    case INTS: {
+        int min_int = *(int*)(cur_table[0].c_str() + offset);
+        for (string record_str : cur_table) {
+            const char* record = record_str.c_str();
+            int tmp = *(int*)(record + offset);
+            if (tmp < min_int) {
+                min_int = tmp;
+            }
+        }
+        tuple.add(min_int);
+    }break;
+    case FLOATS: {
+        float min_float = *(float*)(cur_table[0].c_str() + offset);
+        for (string record_str : cur_table) {
+            const char* record = record_str.c_str();
+            float tmp = *(float*)(record + offset);
+            if (tmp < min_float) {
+                min_float = tmp;
+            }
+        }
+        tuple.add(min_float);
+    }break;
+    case CHARS: {
+        const char* min_chars = (const char*)(cur_table[0].c_str() + offset);
+        for (string record_str : cur_table) {
+            const char* record = record_str.c_str();
+            const char* tmp = (const char*)(record + offset);
+            if (strcmp(tmp, min_chars) < 0) {   //tmp>max_chars
+                min_chars = tmp;
+            }
+        }
+        tuple.add(min_chars, strlen(min_chars));
+    }break;
+    default: {
+        LOG_PANIC("Unsupported field type. type=%d", field_meta->type());
+        return RC::GENERIC_ERROR;
+    }
+    }
+    return RC::SUCCESS;
+}
+//计算AVG(id),不支持CHARS和DATE
+RC get_avg_aggregation(const FieldMeta* field_meta, Tuple& tuple) {
+    int offset = field_meta->offset();
+    switch (field_meta->type()) {
+    case INTS: {
+        int total_int = 0;
+        for (string record_str : cur_table) {
+            const char* record = record_str.c_str();
+            int tmp = *(int*)(record + offset);
+            total_int += tmp;
+        }
+        float avg_int = 1.0 * total_int / cur_table.size();
+        tuple.add(avg_int);
+    }break;
+    case FLOATS: {
+        float total_float = 0;
+        for (string record_str : cur_table) {
+            const char* record = record_str.c_str();
+            float tmp = *(float*)(record + offset);
+            total_float += tmp;
+        }
+        tuple.add(total_float/cur_table.size());
+    }break;
+    default: {
+        LOG_PANIC("Unsupported field type. type=%d", field_meta->type());
+        return RC::GENERIC_ERROR;
+    }
+    }
+    return RC::SUCCESS;
+}
+
+//聚合运算  暂时不用考虑聚合字段与普通字段同时出现的场景
+RC aggregation_func(Trx* trx, const Selects& selects, const char* db, const char* table_name, TupleSet& tupleset) {
+    Table* table = DefaultHandler::get_default().find_table(db, table_name);
+
+    if (nullptr == table) {
+        LOG_WARN("No such table [%s] in db [%s]", table_name, db);
+        return RC::SCHEMA_TABLE_NOT_EXIST;
+    }
+    // 读取当前表的全部内容，存储在cur_table中
+    const TableMeta tablemeta = table->table_meta();
+    curtable_record_size = tablemeta.record_size();   //全局变量，当前表的一条记录的长度
+
+    table->scan_record(trx, nullptr, -1, (void*)(&cur_table), select_record_reader);
+    // 获取过滤列表
+    std::vector<DefaultConditionFilter*> condition_filters;
+    if (get_condition(selects, condition_filters, table_name, table) != RC::SUCCESS) {
+        return RC::GENERIC_ERROR;
+    }
+    //过滤
+    condition_filter->init((const ConditionFilter**)condition_filters.data(), condition_filters.size());
+    vector<string>::iterator it = cur_table.begin();
+    while (it != cur_table.end()) {
+        Record rec;
+        rec.data = (char*)((*it).c_str());
+        if (condition_filter->filter(rec)) {   //false
+            it++;
+        }
+        else {
+            it = cur_table.erase(it);
+        }
+    }
+    //校验聚合字段，同时计算，写入tuple
+    TupleSchema schema;
+    Tuple tuple;
+    for (int i = 0; i < selects.aggregation_num; i++) {
+        const Aggregation& aggr_attr = selects.aggregations[i];
+        const RelAttr& attr = aggr_attr.attr;
+        if (nullptr == attr.relation_name || 0 == strcmp(table_name, attr.relation_name)) {
+            if (schema_add_field(table, attr.attribute_name, schema, aggr_attr.comp) != RC::SUCCESS) {
+                return RC::GENERIC_ERROR;
+            }
+            switch (aggr_attr.comp) {
+            case COUNT_AGG: {
+                int count_value = cur_table.size();
+                tuple.add(count_value);
+            }break;
+            case MAX_AGG: {
+                const FieldMeta* field_meta = table->table_meta().field(attr.attribute_name);
+                assert(field_meta != nullptr);
+                if (get_max_aggregation(field_meta, tuple) != RC::SUCCESS) {
+                    return RC::GENERIC_ERROR;
+                }
+            }break;
+            case MIN_AGG: {
+                const FieldMeta* field_meta = table->table_meta().field(attr.attribute_name);
+                assert(field_meta != nullptr);
+                if (get_min_aggregation(field_meta, tuple) != RC::SUCCESS) {
+                    return RC::GENERIC_ERROR;
+                }
+            }break;
+            case AVG_AGG: {
+                const FieldMeta* field_meta = table->table_meta().field(attr.attribute_name);
+                assert(field_meta != nullptr);
+                if (get_avg_aggregation(field_meta, tuple) != RC::SUCCESS) {
+                    return RC::GENERIC_ERROR;
+                }
+            }break;
+            default: {
+                LOG_ERROR("invalid aggregation comp!\n");
+                return RC::GENERIC_ERROR;
+            }
+            }
+        }
+        else {   //非法表名
+            return RC::GENERIC_ERROR;
+        }
+    }
+    tupleset.set_schema(schema);
+    tupleset.add(std::move(tuple));
+    //
+    return RC::SUCCESS;
+}
+
+//获取单表的所有过滤条件
+RC get_condition(const Selects& selects, std::vector<DefaultConditionFilter*> &condition_filters, const char* table_name, Table* table) {
+    // 找出仅与此表相关的过滤条件, 或者都是值的过滤条件
+    for (size_t i = 0; i < selects.condition_num; i++) {
+        const Condition& condition = selects.conditions[i];
+        if ((condition.left_is_attr == 0 && condition.right_is_attr == 0) || // 两边都是值
+            (condition.left_is_attr == 1 && condition.right_is_attr == 0 && match_table(selects, condition.left_attr.relation_name, table_name)) ||  // 左边是属性右边是值
+            (condition.left_is_attr == 0 && condition.right_is_attr == 1 && match_table(selects, condition.right_attr.relation_name, table_name)) ||  // 左边是值，右边是属性名
+            (condition.left_is_attr == 1 && condition.right_is_attr == 1 &&
+                match_table(selects, condition.left_attr.relation_name, table_name) && match_table(selects, condition.right_attr.relation_name, table_name)) // 左右都是属性名，并且表名都符合
+            ) {
+            //by xiayuan：标记此条件有匹配，用于单表的元数据校验
+            condition_match[i] = 1;
+            DefaultConditionFilter* condition_filter = new DefaultConditionFilter();
+            RC rc = condition_filter->init(*table, condition);
+            if (rc != RC::SUCCESS) {
+                delete condition_filter;
+                for (DefaultConditionFilter*& filter : condition_filters) {
+                    delete filter;
+                }
+                return rc;
+            }
+            condition_filters.push_back(condition_filter);
+        }
+    }
+    return RC::SUCCESS;
 }
 
 // 把所有的表和只跟这张表关联的condition都拿出来，生成最底层的select 执行节点
@@ -403,36 +662,14 @@ RC create_selection_executor(Trx *trx, const Selects &selects, const char *db, c
         return RC::GENERIC_ERROR;
     }
   }
-
   // 找出仅与此表相关的过滤条件, 或者都是值的过滤条件
   std::vector<DefaultConditionFilter *> condition_filters;
-  for (size_t i = 0; i < selects.condition_num; i++) {
-    const Condition &condition = selects.conditions[i];
-    if ((condition.left_is_attr == 0 && condition.right_is_attr == 0) || // 两边都是值
-        (condition.left_is_attr == 1 && condition.right_is_attr == 0 && match_table(selects, condition.left_attr.relation_name, table_name)) ||  // 左边是属性右边是值
-        (condition.left_is_attr == 0 && condition.right_is_attr == 1 && match_table(selects, condition.right_attr.relation_name, table_name)) ||  // 左边是值，右边是属性名
-        (condition.left_is_attr == 1 && condition.right_is_attr == 1 &&
-            match_table(selects, condition.left_attr.relation_name, table_name) && match_table(selects, condition.right_attr.relation_name, table_name)) // 左右都是属性名，并且表名都符合
-        ) {
-        //by xiayuan：标记此条件有匹配
-        condition_match[i] = 1;
-
-      DefaultConditionFilter *condition_filter = new DefaultConditionFilter();
-      RC rc = condition_filter->init(*table, condition);
-      if (rc != RC::SUCCESS) {
-        delete condition_filter;
-        for (DefaultConditionFilter * &filter : condition_filters) {
-          delete filter;
-        }
-        return rc;
-      }
-      condition_filters.push_back(condition_filter);
-    }
+  if (get_condition(selects, condition_filters, table_name, table) != RC::SUCCESS) {
+      return RC::GENERIC_ERROR;
   }
-
+  
   return select_node.init(trx, table, std::move(schema), std::move(condition_filters));
 }
-
 
 RC select_tables(Trx* trx, const char* db, const Selects& selects, TupleSet& tuple_set) {
     //多表查询，获得每个表的全部内容
