@@ -50,5 +50,7 @@ private:
   int          attr_offset_;
   int          attr_len_;
   bool         visible_;
+public:
+  bool         unique_;
 };
 #endif // __OBSERVER_STORAGE_COMMON_FIELD_META_H__

@@ -314,8 +314,102 @@ const TableMeta& Table::table_meta() const {
     return table_meta_;
 }
 
+//BY:CAQ
+//这个check_unique_field()用于检查在这个索引列attribute_name中是否存在和插入/更新value的值重复的记录
+bool Table::check_unique_field(Value value,const char * attribute_name){
+    LOG_INFO("Begin to check unique_field（1）");
+    RC rc;
+    Condition newcondition ;
+    RelAttr left_attr;
+    relation_attr_init(&left_attr,NULL,attribute_name);
+    condition_init(&newcondition, EQUAL_TO, 1, &left_attr, NULL, 0, NULL, &value);
+    CompositeConditionFilter condition_filter;
+    rc = condition_filter.init(*this, &newcondition, 1);
+    if (rc != RC::SUCCESS) {
+    return rc;
+    }
+    //用find_index_for_scan搜索，按理说unique的都是索引，所以是可以用这个find_index_for_scan
+    std::vector<RID > ridlist;
+    IndexScanner *index_scanner = find_index_for_scan(&condition_filter);
+    if (index_scanner == nullptr) {
+        LOG_ERROR("There is no index to use!");
+        return false;
+    }
+    scan_record_by_index(NULL, index_scanner, &condition_filter, 1, ridlist);
+    if(ridlist.size() != 0)
+        return false;
+    else return true;
+}
+//这个check_unique_field()直接检查需要添加的索引列field_meta中是否有重复
+bool Table::check_unique_field(const FieldMeta *field_meta){
+    LOG_INFO("Begin to check unique_field（2）");
+    RC rc = RC::SUCCESS;
+    AttrType type = field_meta->type();
+    RecordFileScanner scanner;
+    rc = scanner.open_scan(*data_buffer_pool_, file_id_, nullptr);
+    if (rc != RC::SUCCESS) {
+        LOG_ERROR("failed to open scanner. file id=%d. rc=%d:%s", file_id_, rc, strrc(rc));
+        return false;
+    }
+    switch (type)
+    {
+    case CHARS:{
+        std::set <std::string> unitset;
+        Record record;
+        char *tempstr = new char[field_meta->len()];
+        for(rc = scanner.get_first_record(&record); rc == RC::SUCCESS;rc = scanner.get_next_record(&record)){
+            strcpy(tempstr,(char*)(record.data + field_meta->offset()));
+            std::string s = std::string(tempstr);
+            if(unitset.find(s) != unitset.end()){
+                scanner.close_scan();
+                free(tempstr);
+                return false;
+            }
+            else{
+                unitset.insert(s);
+            }  
+        }}
+        break;
+    case INTS:
+    case DATES:{
+        std::set <int> unitset2;
+        Record record2;
+        int tempint;
+        for(rc = scanner.get_first_record(&record2); rc == RC::SUCCESS;rc = scanner.get_next_record(&record2)){
+            tempint = *(int *)(record2.data + field_meta->offset());
+            if(unitset2.find(tempint) != unitset2.end()){
+                scanner.close_scan();
+                return false;
+            }
+            else{
+                unitset2.insert(tempint);
+            }  
+        }}
+        break;
+    case FLOATS:{
+        std::set <float> unitset3;
+        Record record3;
+        float tempf;
+        for(rc = scanner.get_first_record(&record3); rc == RC::SUCCESS;rc = scanner.get_next_record(&record3)){
+            tempf = *(float *)(record3.data + field_meta->offset());
+            if(unitset3.find(tempf) != unitset3.end()){
+                scanner.close_scan();
+                return false;
+            }
+            else{
+                unitset3.insert(tempf);
+            }  
+        }}
+        break;
+    default:
+        LOG_ERROR("The type can't check!");
+        break;
+    }
+    scanner.close_scan();
+    return true;
+}
 RC Table::make_record(int value_num, const Value* values, char*& record_out) {
-    // 检查字段类型是否一致
+    // 检查字段数量是否正确
     if (value_num + table_meta_.sys_field_num() != table_meta_.field_num()) {
         return RC::SCHEMA_FIELD_MISSING;
     }
@@ -324,10 +418,18 @@ RC Table::make_record(int value_num, const Value* values, char*& record_out) {
     for (int i = 0; i < value_num; i++) {
         const FieldMeta* field = table_meta_.field(i + normal_field_start_index);
         const Value& value = values[i];
+        //检查字段的类型是否一致
         if (field->type() != value.type) {
             LOG_ERROR("Invalid value type. field name=%s, type=%d, but given=%d",
                 field->name(), field->type(), value.type);
             return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+        }
+        //如果插入的字段是unique的，需要对value是否存在重复进行判断
+        if (field->unique_ == true){
+            if(check_unique_field(value, field->name()) == false){
+                LOG_ERROR("Exist value. field name=%s",field->name());
+                return RC::INVALID_ARGUMENT;
+            }
         }
     }
 
@@ -461,10 +563,10 @@ RC Table::scan_record(Trx *trx, ConditionFilter *filter, int limit, void *contex
     return scan_record_by_index(trx, index_scanner, filter, limit, context, record_reader);
   }
   
-  LOG_INFO("There is no index to use!");
+  //LOG_INFO("There is no index to use!");
   RC rc = RC::SUCCESS;
   RecordFileScanner scanner;
-  LOG_INFO("The open_scan file_id_= %d",file_id_);
+  //LOG_INFO("The open_scan file_id_= %d",file_id_);
   rc = scanner.open_scan(*data_buffer_pool_, file_id_, filter);
   if (rc != RC::SUCCESS) {
     LOG_ERROR("failed to open scanner. file id=%d. rc=%d:%s", file_id_, rc, strrc(rc));
@@ -670,7 +772,7 @@ RC Table::update_index(Trx* trx, const char* attribute_name) {
     return rc;
 }
 
-RC Table::create_index(Trx *trx, const char *index_name, const char *attribute_name) {
+RC Table::create_index(Trx *trx, const char *index_name, const char *attribute_name, bool unique) {
   if (index_name == nullptr || common::is_blank(index_name) ||
       attribute_name == nullptr || common::is_blank(attribute_name)) {
     return RC::INVALID_ARGUMENT;
@@ -684,6 +786,14 @@ RC Table::create_index(Trx *trx, const char *index_name, const char *attribute_n
   if (!field_meta) {
     return RC::SCHEMA_FIELD_MISSING;
   }
+  // BY:CAQ 用于unique索引,还需要进行一次检查
+  FieldMeta *change_field_meta = (FieldMeta *)field_meta;
+  if(check_unique_field(field_meta)==false)
+  {
+    LOG_INFO("can't create unique index!");
+    return RC::INVALID_ARGUMENT;
+  }
+  change_field_meta->unique_ = unique;
 
   IndexMeta new_index_meta;
   RC rc = new_index_meta.init(index_name, *field_meta);
@@ -769,6 +879,13 @@ RC Table::update_record(Trx *trx, const char *attribute_name, const Value *value
     if(check_date(*value)==false){
       return RC::INVALID_ARGUMENT;
     }
+  }
+  //如果字段是unique,需要检查字段是否重复
+  if(field_meta->unique_ == true){
+      if(check_unique_field(*value,attribute_name)==false){
+            LOG_ERROR("Exist value. field name=%s",field_meta->name());
+            return RC::INVALID_ARGUMENT;
+      }
   }
   //获得偏移量和value长度
   int attr_offset = field_meta->offset();

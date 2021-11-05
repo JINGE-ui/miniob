@@ -56,8 +56,10 @@ public:
 
   RC scan_record(Trx *trx, ConditionFilter *filter, int limit, void *context, void (*record_reader)(const char *data, void *context));
   RC scan_record(Trx *trx, ConditionFilter *filter, int limit, std::vector<RID >& ridlist);
-  RC create_index(Trx *trx, const char *index_name, const char *attribute_name);
+  RC create_index(Trx *trx, const char *index_name, const char *attribute_name, bool unique);
   bool check_date(const Value value);
+  bool check_unique_field(const Value value,const char *attribute_name);
+  bool check_unique_field(const FieldMeta *field_meta);
 public:
   const char *name() const;
 
