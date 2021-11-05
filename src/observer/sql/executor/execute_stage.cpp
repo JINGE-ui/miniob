@@ -236,18 +236,84 @@ void select_record_reader(const char* data, void* context) {
     (*ptr_string).push_back(tmp);
 }
 
-RC run(vector<vector<string>> &dimvalue, vector<string> &result, int layer, string curstring)
+//为了支持多表查询，对match_table重载，table需位于[0,layer]个
+bool match_table(const Selects& selects, const char* table_name_in_condition, int layer) {
+    if (table_name_in_condition == nullptr || selects.relation_num == 1) {   //不满足多表查询的匹配规则 
+        return false;
+    }
+    for (int i = 0; i <= layer; i++) {
+        if (strcmp(table_name_in_condition, relation_map_order[i].c_str()) == 0) {   //该表是第i个表，从0计数
+            return true;
+        }
+    }
+    return false;
+}
+
+//获取多表的0~layer层的 所有过滤条件， layer取值[0,table_num-1]
+RC get_tables_condition(const char* db, const Selects& selects, std::vector<DefaultConditionFilter*> &condition_filters, int layer) {
+    for (size_t i = 0; i < selects.condition_num; i++) {
+        const Condition& condition = selects.conditions[i];
+        if ((condition.left_is_attr == 0 && condition.right_is_attr == 0) || // 两边都是值
+            (condition.left_is_attr == 1 && condition.right_is_attr == 0 && match_table(selects, condition.left_attr.relation_name, layer)) ||  // 左边是属性右边是值
+            (condition.left_is_attr == 0 && condition.right_is_attr == 1 && match_table(selects, condition.right_attr.relation_name, layer)) ||  // 左边是值，右边是属性名
+            (condition.left_is_attr == 1 && condition.right_is_attr == 1 &&
+                match_table(selects, condition.left_attr.relation_name, layer) && match_table(selects, condition.right_attr.relation_name, layer)) // 左右都是属性名，并且表名都符合
+            ) {
+            //获取左右表在笛卡尔积中的偏移
+            int left_offset = 0, right_offset = 0;
+            Table* left_table = nullptr, * right_table = nullptr;
+            if (condition.left_is_attr == 1 && match_table(selects, condition.left_attr.relation_name, layer)) {   //左边是带表名.的属性
+                left_offset = relation_map_offset[condition.left_attr.relation_name];   //应该不会出现key不存在的现象
+                left_table = DefaultHandler::get_default().find_table(db, condition.left_attr.relation_name);
+            }
+            if (condition.right_is_attr == 1 && match_table(selects, condition.right_attr.relation_name, layer)) {
+                right_offset = relation_map_offset[condition.right_attr.relation_name];
+                right_table = DefaultHandler::get_default().find_table(db, condition.right_attr.relation_name);
+            }
+
+            DefaultConditionFilter* condition_filter = new DefaultConditionFilter();
+            RC rc = condition_filter->init(left_table, right_table, condition, left_offset, right_offset);
+            if (rc != RC::SUCCESS) {   //非法列名
+                delete condition_filter;
+                for (DefaultConditionFilter*& filter : condition_filters) {
+                    delete filter;
+                }
+                return rc;
+            }
+            condition_filters.push_back(condition_filter);
+        }
+    }
+    return RC::SUCCESS;
+}
+
+RC run(const char* db, const Selects& selects, vector<vector<string>> &dimvalue, vector<string> &result, int layer, string curstring)
 {
     if (layer < dimvalue.size() - 1)
     {
-        if (dimvalue[layer].size() == 0) {
+        if (dimvalue[layer].size() == 0) {    //应该不会发生
             return RC::GENERIC_ERROR;
         }
         for (int i = 0; i < dimvalue[layer].size(); i++)
         {
-            if (run(dimvalue, result, layer + 1, curstring + dimvalue[layer][i]) != RC::SUCCESS) {
+            std::vector<DefaultConditionFilter*> condition_filters;
+            if (get_tables_condition(db, selects, condition_filters, layer) != RC::SUCCESS) {
+                for (DefaultConditionFilter*& filter : condition_filters) {
+                    delete filter;
+                }
                 return RC::GENERIC_ERROR;
             }
+            condition_filter->init((const ConditionFilter**)condition_filters.data(), condition_filters.size());
+            string tmp = curstring + dimvalue[layer][i];
+            Record rec;
+            rec.data = (char*)tmp.c_str();
+            if (condition_filter->filter(rec)) {   //满足过滤条件
+                if (run(db,selects,dimvalue, result, layer + 1, tmp) != RC::SUCCESS) {
+                    return RC::GENERIC_ERROR;
+                }
+            }
+            for (DefaultConditionFilter*& filter : condition_filters) {
+                delete filter;
+            }  
         }
     }
     else if (layer == dimvalue.size() - 1)
@@ -257,7 +323,23 @@ RC run(vector<vector<string>> &dimvalue, vector<string> &result, int layer, stri
         }
         for (int i = 0; i < dimvalue[layer].size(); i++)
         {
-            result.push_back(curstring + dimvalue[layer][i]);
+            std::vector<DefaultConditionFilter*> condition_filters;
+            if (get_tables_condition(db, selects, condition_filters, layer) != RC::SUCCESS) {
+                for (DefaultConditionFilter*& filter : condition_filters) {
+                    delete filter;
+                }
+                return RC::GENERIC_ERROR;
+            }
+            condition_filter->init((const ConditionFilter**)condition_filters.data(), condition_filters.size());
+            string tmp = curstring + dimvalue[layer][i];
+            Record rec;
+            rec.data = (char*)tmp.c_str();
+            if (condition_filter->filter(rec)) {   //满足过滤条件
+                result.push_back(curstring + dimvalue[layer][i]);
+            }
+            for (DefaultConditionFilter*& filter : condition_filters) {
+                delete filter;
+            }
         }
     }
     return RC::SUCCESS;
@@ -741,14 +823,30 @@ RC select_tables(Trx* trx, const char* db, const Selects& selects, TupleSet& tup
         LOG_INFO("exit in advance\n");
         return RC::SUCCESS;
     }
-
-    //获取笛卡尔积
-    if (run(tables_value, Cartesian_result, 0, "") != RC::SUCCESS) {   //获取的笛卡尔积存在Cartesian_result，run函数按理不会执行失败
+    
+    //边过滤边连接
+    if (run(db, selects, tables_value, Cartesian_result, 0, "") != RC::SUCCESS) {   //获取的连接结果存在Cartesian_result，run函数按理不会执行失败
         LOG_INFO("Failed to excute run() function!\n");
         return RC::GENERIC_ERROR;
     }
-    LOG_INFO("get Cartesian_result\n");
+    //检查where条件是否会有非法表名
+    for (size_t i = 0; i < selects.condition_num; ) {
+        const Condition& condition = selects.conditions[i];
+        if ((condition.left_is_attr == 0 && condition.right_is_attr == 0) || // 两边都是值
+            (condition.left_is_attr == 1 && condition.right_is_attr == 0 && match_table(selects, condition.left_attr.relation_name)) ||  // 左边是属性右边是值
+            (condition.left_is_attr == 0 && condition.right_is_attr == 1 && match_table(selects, condition.right_attr.relation_name)) ||  // 左边是值，右边是属性名
+            (condition.left_is_attr == 1 && condition.right_is_attr == 1 &&
+                match_table(selects, condition.left_attr.relation_name) && match_table(selects, condition.right_attr.relation_name)) // 左右都是属性名，并且表名都符合
+            ) {
+            i++;
+        }
+        else {   //有非法表名
+            return RC::GENERIC_ERROR;
+        }
+    }
+
     //生成过滤列表
+    /*
     std::vector<DefaultConditionFilter*> condition_filters;
     for (size_t i = 0; i < selects.condition_num; i++) {
         const Condition& condition = selects.conditions[i];
@@ -769,12 +867,6 @@ RC select_tables(Trx* trx, const char* db, const Selects& selects, TupleSet& tup
                 right_offset = relation_map_offset[condition.right_attr.relation_name];
                 right_table = DefaultHandler::get_default().find_table(db, condition.right_attr.relation_name);
             }
-            /*
-            if (left_table == nullptr || right_table == nullptr) {
-                LOG_ERROR("an unexcepted error!\n");
-                return RC::GENERIC_ERROR;
-            }
-            */
 
             DefaultConditionFilter* condition_filter = new DefaultConditionFilter();
             RC rc = condition_filter->init(left_table, right_table, condition, left_offset, right_offset);
@@ -792,7 +884,6 @@ RC select_tables(Trx* trx, const char* db, const Selects& selects, TupleSet& tup
         }
     }
     condition_filter->init((const ConditionFilter**)condition_filters.data(), condition_filters.size());
-    LOG_INFO("get condition filters\n");
     //开始过滤
     vector<string>::iterator it = Cartesian_result.begin();
     while (it != Cartesian_result.end()) {
@@ -809,6 +900,7 @@ RC select_tables(Trx* trx, const char* db, const Selects& selects, TupleSet& tup
         delete filter;
     }
     LOG_INFO("success to filter:\n");
+    */
 
     //投影
     tuple_set.clear();
