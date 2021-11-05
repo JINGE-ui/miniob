@@ -153,6 +153,16 @@ void selects_append_conditions(Selects *selects, Condition conditions[], size_t 
   selects->condition_num = condition_num;
 }
 
+/*by XY 添加聚合运算字段*/
+void selects_append_aggregation(Selects *selects, Aggregation *agg_attr){
+  selects->aggregations[selects->aggregation_num++] = *agg_attr;
+}
+/* by XY: 聚合字段init */
+void aggregation_init(Aggregation* aggr_attr, RelAttr *relation_attr, AggregationOp comp){
+  aggr_attr->attr = *relation_attr;
+  aggr_attr->comp = comp;
+}
+
 void selects_destroy(Selects *selects) {
   for (size_t i = 0; i < selects->attr_num; i++) {
     relation_attr_destroy(&selects->attributes[i]);

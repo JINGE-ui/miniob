@@ -66,7 +66,12 @@ private:
 class TupleField {
 public:
   TupleField(AttrType type, const char *table_name, const char *field_name) :
-          type_(type), table_name_(table_name), field_name_(field_name){
+          type_(type), table_name_(table_name), field_name_(field_name), comp(NONE_AGG){
+  }
+
+  //by XY
+  TupleField(AttrType type, const char* table_name, const char* field_name, AggregationOp agg_comp) :
+      type_(type), table_name_(table_name), field_name_(field_name), comp(agg_comp){
   }
 
   AttrType  type() const{
@@ -79,12 +84,18 @@ public:
   const char *field_name() const {
     return field_name_.c_str();
   }
+  //add by XY
+  AggregationOp aggregationop() const {
+      return comp;
+  }
 
   std::string to_string() const;
 private:
   AttrType  type_;
   std::string table_name_;
   std::string field_name_;
+  
+  AggregationOp comp;   //支持聚合运算 by XY
 };
 
 class TupleSchema {
@@ -94,6 +105,10 @@ public:
 
   void add(AttrType type, const char *table_name, const char *field_name);
   void add_if_not_exists(AttrType type, const char *table_name, const char *field_name);
+  //add by XY
+  void add_if_not_exists(AttrType type, const char* table_name, const char* field_name, AggregationOp comp);
+  void add(AttrType type, const char* table_name, const char* field_name, AggregationOp comp);
+
   // void merge(const TupleSchema &other);
   void append(const TupleSchema &other);
 

@@ -19,6 +19,7 @@ typedef struct ParserContext {
   Value values[MAX_NUM];
   Condition conditions[MAX_NUM];
   CompOp comp;
+  AggregationOp aggcomp;
 	char id[MAX_NUM];
   size_t tuplev_begin;
 } ParserContext;
@@ -106,6 +107,12 @@ ParserContext *get_context(yyscan_t scanner)
         LE
         GE
         NE
+		COUNT
+		MAX
+		MIN
+		AVG
+		INNER
+		JOIN
 
 %union {
   struct _Attr *attr;
@@ -352,7 +359,7 @@ update:			/*  update 语句的语法解析树*/
 		}
     ;
 select:				/*  select 语句的语法解析树*/
-    SELECT select_attr FROM ID rel_list where SEMICOLON
+    SELECT select_attr FROM ID rel_list inner_join_list where SEMICOLON
 		{
 			// CONTEXT->ssql->sstr.selection.relations[CONTEXT->from_length++]=$4;
 			selects_append_relation(&CONTEXT->ssql->sstr.selection, $4);
@@ -367,6 +374,19 @@ select:				/*  select 语句的语法解析树*/
 			CONTEXT->from_length=0;
 			CONTEXT->select_length=0;
 			CONTEXT->value_length = 0;
+	}
+	;
+	
+inner_join_list:
+	/* empty */
+	| INNER JOIN ID rel_list inner_join_on inner_join_list{
+		selects_append_relation(&CONTEXT->ssql->sstr.selection, $3);
+	}
+	;
+inner_join_on:
+	/* empty */
+	| ON condition condition_list{
+
 	}
 	;
 
@@ -386,7 +406,41 @@ select_attr:
 			relation_attr_init(&attr, $1, $3);
 			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
 		}
-    ;
+	| aggr_attr aggr_attr_list{
+
+	}
+	;
+aggr_attr:
+	AggregationOp LBRACE STAR RBRACE {
+		RelAttr attr;
+		Aggregation aggr_attr;
+		relation_attr_init(&attr, NULL, "*");
+		aggregation_init(&aggr_attr,&attr,CONTEXT->aggcomp);
+		selects_append_aggregation(&CONTEXT->ssql->sstr.selection,&aggr_attr);
+	}
+	| AggregationOp LBRACE ID RBRACE {   
+		RelAttr attr;
+		Aggregation aggr_attr;
+		relation_attr_init(&attr, NULL, $3);
+		aggregation_init(&aggr_attr,&attr,CONTEXT->aggcomp);
+		selects_append_aggregation(&CONTEXT->ssql->sstr.selection,&aggr_attr);
+	}
+	| AggregationOp LBRACE ID DOT ID RBRACE {
+		RelAttr attr;
+		Aggregation aggr_attr;
+		relation_attr_init(&attr, $3, $5);
+		aggregation_init(&aggr_attr,&attr,CONTEXT->aggcomp);
+		selects_append_aggregation(&CONTEXT->ssql->sstr.selection,&aggr_attr);
+	}
+	;
+aggr_attr_list:
+	/* empty */
+	| COMMA aggr_attr aggr_attr_list{
+
+	}
+	;
+
+
 attr_list:
     /* empty */
     | COMMA ID attr_list {
@@ -404,6 +458,15 @@ attr_list:
         // CONTEXT->ssql->sstr.selection.attributes[CONTEXT->select_length++].relation_name=$2;
   	  }
   	;
+
+/*聚合运算 by XY*/
+AggregationOp:
+	  COUNT { CONTEXT->aggcomp = COUNT_AGG;}
+	| MAX { CONTEXT->aggcomp = MAX_AGG;}
+	| MIN { CONTEXT->aggcomp = MIN_AGG;}
+	| AVG { CONTEXT->aggcomp = AVG_AGG;}
+	;
+
 
 rel_list:
     /* empty */

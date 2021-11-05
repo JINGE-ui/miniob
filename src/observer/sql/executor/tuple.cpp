@@ -85,6 +85,24 @@ void TupleSchema::add(AttrType type, const char *table_name, const char *field_n
   fields_.emplace_back(type, table_name, field_name);
 }
 
+//by XY:
+void TupleSchema::add(AttrType type, const char* table_name, const char* field_name, AggregationOp comp) {
+    fields_.emplace_back(type, table_name, field_name, comp);
+}
+
+//by XY:
+void TupleSchema::add_if_not_exists(AttrType type, const char* table_name, const char* field_name, AggregationOp comp) {
+    for (const auto& field : fields_) {
+        if (0 == strcmp(field.table_name(), table_name) &&
+            0 == strcmp(field.field_name(), field_name) &&
+            field.aggregationop()==comp) {
+            return;
+        }
+    }
+
+    add(type, table_name, field_name, comp);
+}
+
 void TupleSchema::add_if_not_exists(AttrType type, const char *table_name, const char *field_name) {
   for (const auto &field: fields_) {
     if (0 == strcmp(field.table_name(), table_name) &&
@@ -120,18 +138,50 @@ void TupleSchema::print(std::ostream& os, int table_num) const {
         return;
     }
 
-    for (std::vector<TupleField>::const_iterator iter = fields_.begin(), end = --fields_.end();
+    for (std::vector<TupleField>::const_iterator iter = fields_.begin(), end = fields_.end();
         iter != end; ++iter) {
-        if (table_num > 1) {
-            os << iter->table_name() << ".";
+        //支持聚合运算 by XY:
+        if (iter->aggregationop() == COUNT_AGG) {
+            os << "count(";
+            if (table_num > 1) {
+                os << iter->table_name() << ".";
+            }
+            os << iter->field_name() << ")";
         }
-        os << iter->field_name() << " | ";
+        else if (iter->aggregationop() == MAX_AGG) {
+            os << "max(";
+            if (table_num > 1) {
+                os << iter->table_name() << ".";
+            }
+            os << iter->field_name() << ")";
+        }
+        else if (iter->aggregationop() == MIN_AGG) {
+            os << "min(";
+            if (table_num > 1) {
+                os << iter->table_name() << ".";
+            }
+            os << iter->field_name() << ")";
+        }
+        else if (iter->aggregationop() == AVG_AGG) {
+            os << "avg(";
+            if (table_num > 1) {
+                os << iter->table_name() << ".";
+            }
+            os << iter->field_name() << ")";
+        }
+        else {
+            if (table_num > 1) {
+                os << iter->table_name() << ".";
+            }
+            os << iter->field_name();
+        }
+        if (iter != fields_.end() - 1) {
+            os << " | ";
+        }
+        else {
+            os << std::endl;
+        }
     }
-
-    if (table_num > 1) {
-        os << fields_.back().table_name() << ".";
-    }
-    os << fields_.back().field_name() << std::endl;
 }
 
 void TupleSchema::print(std::ostream &os) const {
