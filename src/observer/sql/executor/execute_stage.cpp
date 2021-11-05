@@ -293,27 +293,29 @@ RC run(const char* db, const Selects& selects, vector<vector<string>> &dimvalue,
         if (dimvalue[layer].size() == 0) {    //应该不会发生
             return RC::GENERIC_ERROR;
         }
+        std::vector<DefaultConditionFilter*> condition_filters;
+        if (get_tables_condition(db, selects, condition_filters, layer) != RC::SUCCESS) {
+            for (DefaultConditionFilter*& filter : condition_filters) {
+                delete filter;
+            }
+            return RC::GENERIC_ERROR;
+        }
+        CompositeConditionFilter *record_filter = new CompositeConditionFilter;
+        record_filter->init((const ConditionFilter**)condition_filters.data(), condition_filters.size());
+
         for (int i = 0; i < dimvalue[layer].size(); i++)
         {
-            std::vector<DefaultConditionFilter*> condition_filters;
-            if (get_tables_condition(db, selects, condition_filters, layer) != RC::SUCCESS) {
-                for (DefaultConditionFilter*& filter : condition_filters) {
-                    delete filter;
-                }
-                return RC::GENERIC_ERROR;
-            }
-            condition_filter->init((const ConditionFilter**)condition_filters.data(), condition_filters.size());
             string tmp = curstring + dimvalue[layer][i];
             Record rec;
             rec.data = (char*)tmp.c_str();
-            if (condition_filter->filter(rec)) {   //满足过滤条件
+            if (record_filter->filter(rec)) {   //满足过滤条件
                 if (run(db,selects,dimvalue, result, layer + 1, tmp) != RC::SUCCESS) {
                     return RC::GENERIC_ERROR;
                 }
-            }
-            for (DefaultConditionFilter*& filter : condition_filters) {
-                delete filter;
             }  
+        }
+        for (DefaultConditionFilter*& filter : condition_filters) {
+            delete filter;
         }
     }
     else if (layer == dimvalue.size() - 1)
@@ -321,25 +323,29 @@ RC run(const char* db, const Selects& selects, vector<vector<string>> &dimvalue,
         if (dimvalue[layer].size() == 0) {
             return RC::GENERIC_ERROR;
         }
-        for (int i = 0; i < dimvalue[layer].size(); i++)
-        {
-            std::vector<DefaultConditionFilter*> condition_filters;
-            if (get_tables_condition(db, selects, condition_filters, layer) != RC::SUCCESS) {
-                for (DefaultConditionFilter*& filter : condition_filters) {
-                    delete filter;
-                }
-                return RC::GENERIC_ERROR;
-            }
-            condition_filter->init((const ConditionFilter**)condition_filters.data(), condition_filters.size());
-            string tmp = curstring + dimvalue[layer][i];
-            Record rec;
-            rec.data = (char*)tmp.c_str();
-            if (condition_filter->filter(rec)) {   //满足过滤条件
-                result.push_back(curstring + dimvalue[layer][i]);
-            }
+
+        std::vector<DefaultConditionFilter*> condition_filters;
+        if (get_tables_condition(db, selects, condition_filters, layer) != RC::SUCCESS) {
             for (DefaultConditionFilter*& filter : condition_filters) {
                 delete filter;
             }
+            return RC::GENERIC_ERROR;
+        }
+        CompositeConditionFilter* record_filter = new CompositeConditionFilter;
+        record_filter->init((const ConditionFilter**)condition_filters.data(), condition_filters.size());
+
+        for (int i = 0; i < dimvalue[layer].size(); i++)
+        {
+            string tmp = curstring + dimvalue[layer][i];
+            Record rec;
+            rec.data = (char*)tmp.c_str();
+            if (record_filter->filter(rec)) {   //满足过滤条件
+                result.push_back(curstring + dimvalue[layer][i]);
+            }
+            
+        }
+        for (DefaultConditionFilter*& filter : condition_filters) {
+            delete filter;
         }
     }
     return RC::SUCCESS;
