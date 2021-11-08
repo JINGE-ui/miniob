@@ -76,7 +76,6 @@ std::vector<compDesc> order_by;     //用于排序
 //
 RC select_tables(Trx* trx, const char* db, const Selects& selects, TupleSet& tuple_set);
 RC aggregation_func(Trx* trx, const Selects& selects, const char* db, const char* table_name, TupleSet& tupleset);
-RC create_selection_executor(Trx *trx, const Selects &selects, const char *db, const char *table_name, SelectExeNode &select_node);
 RC get_condition(const Selects& selects, std::vector<DefaultConditionFilter*>& condition_filters, const char* table_name, Table* table);
 RC select_single_table(Trx* trx, const char* db, const Selects& selects, TupleSet& tuple_set);
 
@@ -1103,45 +1102,6 @@ RC select_single_table(Trx* trx, const char* db, const Selects& selects, TupleSe
    
 }
 
-// 把所有的表和只跟这张表关联的condition都拿出来，生成最底层的select 执行节点
-RC create_selection_executor(Trx *trx, const Selects &selects, const char *db, const char *table_name, SelectExeNode &select_node) {
-  // 列出跟这张表关联的Attr
-  TupleSchema schema;
-  Table * table = DefaultHandler::get_default().find_table(db, table_name);
-
-  if (nullptr == table) {
-    LOG_WARN("No such table [%s] in db [%s]", table_name, db);
-    return RC::SCHEMA_TABLE_NOT_EXIST;
-  }
-
-  for (int i = selects.attr_num - 1; i >= 0; i--) {
-    const RelAttr &attr = selects.attributes[i];
-    if (nullptr == attr.relation_name || 0 == strcmp(table_name, attr.relation_name)) {
-      if (0 == strcmp("*", attr.attribute_name)) {
-        // 列出这张表所有字段
-        TupleSchema::from_table(table, schema);
-        break; // 没有校验，给出* 之后，再写字段的错误
-      } else {
-        // 列出这张表相关字段
-        RC rc = schema_add_field(table, attr.attribute_name, schema);
-        if (rc != RC::SUCCESS) {
-
-          return rc;
-        }
-      }
-    }
-    else {   //非法表名
-        return RC::GENERIC_ERROR;
-    }
-  }
-  // 找出仅与此表相关的过滤条件, 或者都是值的过滤条件
-  std::vector<DefaultConditionFilter *> condition_filters;
-  if (get_condition(selects, condition_filters, table_name, table) != RC::SUCCESS) {
-      return RC::GENERIC_ERROR;
-  }
-  
-  return select_node.init(trx, table, std::move(schema), std::move(condition_filters));
-}
 
 RC select_tables(Trx* trx, const char* db, const Selects& selects, TupleSet& tuple_set) {
     //多表查询，获得每个表的全部内容
@@ -1362,8 +1322,10 @@ RC select_tables(Trx* trx, const char* db, const Selects& selects, TupleSet& tup
             desc.order = attr.order;
             order_by.push_back(desc);   //用于排序
         }
-        sort(Cartesian_result.begin(), Cartesian_result.end(), orderby_cmp);          //先排序
-
+        if(selects.orderby_num>0){
+            sort(Cartesian_result.begin(), Cartesian_result.end(), orderby_cmp);          //先排序
+        }
+        
         if (ordinary_attr_exist) {  //只有普通字段
             TupleRecordConverter converter(nullptr, tuple_set);
             for (string record : Cartesian_result) {
