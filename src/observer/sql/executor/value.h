@@ -59,21 +59,21 @@ public:
 
   void to_string(std::ostream &os) const override {
     string num_str(std::to_string(value_));
-    int flag=0,num=0;
-    for(string::iterator it=num_str.begin();it<num_str.end();it++){
-      if(flag==1 && *it!='0'){
-        num++;
-      }
+    string::iterator it=num_str.begin();
+    for(;it<num_str.end();it++){
       if(*it=='.'){
-        flag=1;
+        break;
       }
     }
-    if(num>=2){
+    if(it>num_str.end()-4){  //
+      os << value_;   
+    }else if(*(it+3)=='1'){     //xx1
       os << std::setprecision(2) << std::fixed << value_;            //设置输出精度为2位小数
-    }else{
-      os << value_;       
+    }else if(*(it+2)=='0' && *(it+3)=='0'){   //x00
+      os << value_;     
+    }else{  //110  010
+      os << std::setprecision(2) << std::fixed << value_;            //设置输出精度为2位小数
     }
-    //os << std::setprecision(2) << std::fixed << value_;            //设置输出精度为2位小数
   }
 
   int compare(const TupleValue &other) const override {
