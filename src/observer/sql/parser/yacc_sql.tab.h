@@ -77,6 +77,7 @@ extern int yydebug;
     DOT = 283,
     INTO = 284,
     VALUES = 285,
+<<<<<<< HEAD
     FROM = 286,
     WHERE = 287,
     AND = 288,
@@ -107,6 +108,37 @@ extern int yydebug;
     DATE = 313,
     STAR = 314,
     STRING_V = 315
+=======
+    UNIQUE = 286,
+    FROM = 287,
+    WHERE = 288,
+    AND = 289,
+    SET = 290,
+    ON = 291,
+    LOAD = 292,
+    DATA = 293,
+    INFILE = 294,
+    EQ = 295,
+    LT = 296,
+    GT = 297,
+    LE = 298,
+    GE = 299,
+    NE = 300,
+    COUNT = 301,
+    MAX = 302,
+    MIN = 303,
+    AVG = 304,
+    INNER = 305,
+    JOIN = 306,
+    NUMBER = 307,
+    FLOAT = 308,
+    ID = 309,
+    PATH = 310,
+    SSS = 311,
+    DATE = 312,
+    STAR = 313,
+    STRING_V = 314
+>>>>>>> e64db892a051e793e506693cc71d76b68eb5f286
   };
 #endif
 
@@ -114,7 +146,11 @@ extern int yydebug;
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
+<<<<<<< HEAD
 #line 118 "yacc_sql.y"
+=======
+#line 117 "yacc_sql.y"
+>>>>>>> e64db892a051e793e506693cc71d76b68eb5f286
 
   struct _Attr *attr;
   struct _Condition *condition1;
@@ -125,7 +161,11 @@ union YYSTYPE
   float floats;
 	char *position;
 
+<<<<<<< HEAD
 #line 129 "yacc_sql.tab.h"
+=======
+#line 128 "yacc_sql.tab.h"
+>>>>>>> e64db892a051e793e506693cc71d76b68eb5f286
 
 };
 typedef union YYSTYPE YYSTYPE;
