@@ -977,7 +977,7 @@ RC select_single_table(Trx* trx, const char* db, const Selects& selects, TupleSe
         }
         //获取order by后的字段   暂时不考虑order by 和 group by 同时出现的情况
         order_by.clear();
-        for (int i = selects.orderby_num - 1; i >= 0; i--) {
+        for (int i = selects.orderby_num-1; i >=0; i--) {
             RelAttr attr = selects.orderby_attr[i];
             if (strcmp(attr.attribute_name, "*") == 0) {   // 不允许order by *
                 return RC::GENERIC_ERROR;
@@ -1338,7 +1338,7 @@ RC select_tables(Trx* trx, const char* db, const Selects& selects, TupleSet& tup
         }
 
         order_by.clear();
-        for (int i = selects.orderby_num - 1; i >= 0; i--) {
+        for (int i = selects.orderby_num-1; i >=0; i--) {
             RelAttr attr = selects.orderby_attr[i];
             if (strcmp(attr.attribute_name, "*") == 0) {   // 不允许order by *
                 return RC::GENERIC_ERROR;

@@ -383,14 +383,24 @@ select:				/*  select 语句的语法解析树*/
 	;
 order:
 	/* empty */
-	| ORDER BY ID orderop order_list{
+	| ORDER BY ID DESC order_list{
 		RelAttr attr;
-		order_relation_attr_init(&attr, NULL, $3, CONTEXT->order);
+		order_relation_attr_init(&attr, NULL, $3, DESC_ORDER);
 		selects_append_orderby(&CONTEXT->ssql->sstr.selection,&attr);
 	}
-	| ORDER BY ID DOT ID orderop order_list{
+	| ORDER BY ID DOT ID DESC order_list{
 		RelAttr attr;
-		order_relation_attr_init(&attr, $3, $5, CONTEXT->order);
+		order_relation_attr_init(&attr, $3, $5, DESC_ORDER);
+		selects_append_orderby(&CONTEXT->ssql->sstr.selection,&attr);
+	}
+	| ORDER BY ID ASC order_list{
+		RelAttr attr;
+		order_relation_attr_init(&attr, NULL, $3, ASC_ORDER);
+		selects_append_orderby(&CONTEXT->ssql->sstr.selection,&attr);
+	}
+	| ORDER BY ID DOT ID ASC order_list{
+		RelAttr attr;
+		order_relation_attr_init(&attr, $3, $5, ASC_ORDER);
 		selects_append_orderby(&CONTEXT->ssql->sstr.selection,&attr);
 	}
 	| ORDER BY ID order_list{
@@ -406,14 +416,24 @@ order:
 	;
 order_list:
 	/* empty */
-	| COMMA ID orderop order_list{
+	| COMMA ID DESC order_list{
 		RelAttr attr;
-		order_relation_attr_init(&attr, NULL, $2, CONTEXT->order);
+		order_relation_attr_init(&attr, NULL, $2, DESC_ORDER);
 		selects_append_orderby(&CONTEXT->ssql->sstr.selection,&attr);
 	}
-	| COMMA ID DOT ID orderop order_list{
+	| COMMA ID DOT ID DESC order_list{
 		RelAttr attr;
-		order_relation_attr_init(&attr, $2, $4, CONTEXT->order);
+		order_relation_attr_init(&attr, $2, $4, DESC_ORDER);
+		selects_append_orderby(&CONTEXT->ssql->sstr.selection,&attr);
+	}
+	| COMMA ID ASC order_list{
+		RelAttr attr;
+		order_relation_attr_init(&attr, NULL, $2, ASC_ORDER);
+		selects_append_orderby(&CONTEXT->ssql->sstr.selection,&attr);
+	}
+	| COMMA ID DOT ID ASC order_list{
+		RelAttr attr;
+		order_relation_attr_init(&attr, $2, $4, ASC_ORDER);
 		selects_append_orderby(&CONTEXT->ssql->sstr.selection,&attr);
 	}
 	| COMMA ID order_list{
@@ -426,10 +446,6 @@ order_list:
 		order_relation_attr_init(&attr, $2, $4, ASC_ORDER);
 		selects_append_orderby(&CONTEXT->ssql->sstr.selection,&attr);
 	}
-	;
-orderop:
-	ASC { CONTEXT->order = ASC_ORDER; }
-	| DESC{ CONTEXT->order = DESC_ORDER; }
 	;
 group:
 	/* empty */
