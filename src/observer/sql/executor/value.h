@@ -20,6 +20,7 @@ See the Mulan PSL v2 for more details. */
 #include <string>
 #include <ostream>
 
+#include <iomanip>
 class TupleValue {
 public:
   TupleValue() = default;
@@ -54,7 +55,7 @@ public:
   }
 
   void to_string(std::ostream &os) const override {
-    os << setprecision(2) << value_;            //设置输出精度为2位小数
+    os << std::setprecision(2) << value_;            //设置输出精度为2位小数
   }
 
   int compare(const TupleValue &other) const override {

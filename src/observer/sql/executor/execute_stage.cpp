@@ -416,9 +416,6 @@ RC ExecuteStage::do_select(const char *db, Query *sql, SessionEvent *session_eve
         //by xiayuan：元数据校验，where子句中如果有条件未匹配，说明有非法列名
         if ((find(condition_match.begin(), condition_match.end(), 0) != condition_match.end())
             && !condition_match.empty()) {
-            for (SelectExeNode*& tmp_node : select_nodes) {
-                delete tmp_node;
-            }
             //打印错误
             const char* response = "FAILURE\n";
             session_event->set_response(response);
