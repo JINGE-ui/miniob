@@ -304,12 +304,6 @@ RC get_tables_condition(const char* db, const Selects& selects, std::vector<Defa
             }
             condition_filters.push_back(condition_filter);
         }
-        else {  //非法表名
-            for (DefaultConditionFilter*& filter : condition_filters) {
-                delete filter;
-            }
-            return RC::GENERIC_ERROR;
-        }
     }
     return RC::SUCCESS;
 }
@@ -1213,6 +1207,22 @@ RC select_tables(Trx* trx, const char* db, const Selects& selects, TupleSet& tup
     if (run(db, selects, tables_value, Cartesian_result, 0, "") != RC::SUCCESS) {   //获取的连接结果存在Cartesian_result，run函数按理不会执行失败
         LOG_INFO("Failed to excute run() function!\n");
         return RC::GENERIC_ERROR;
+    }
+
+    //检查where条件是否会有非法表名
+    for (size_t i = 0; i < selects.condition_num; ) {
+        const Condition& condition = selects.conditions[i];
+        if ((condition.left_is_attr == 0 && condition.right_is_attr == 0) || // 两边都是值
+            (condition.left_is_attr == 1 && condition.right_is_attr == 0 && match_table(selects, condition.left_attr.relation_name)) ||  // 左边是属性右边是值
+            (condition.left_is_attr == 0 && condition.right_is_attr == 1 && match_table(selects, condition.right_attr.relation_name)) ||  // 左边是值，右边是属性名
+            (condition.left_is_attr == 1 && condition.right_is_attr == 1 &&
+                match_table(selects, condition.left_attr.relation_name) && match_table(selects, condition.right_attr.relation_name)) // 左右都是属性名，并且表名都符合
+            ) {
+            i++;
+        }
+        else {   //有非法表名
+            return RC::GENERIC_ERROR;
+        }
     }
     
     //由于tupleschema没有记录offset，为了聚合运算，使用自定义的schema
