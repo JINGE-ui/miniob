@@ -60,6 +60,8 @@ typedef struct {
 
 
 // by XY
+//by xiayuan：元数据校验，用于验证where子句的每一个条件是否有table来匹配，1表存在匹配，0表不存在并返回错误
+std::vector<int>condition_match;
 std::vector<std::vector<string>> tables_value;
 std::vector<std::string> Cartesian_result, cur_table;
 std::unordered_map<std::string, int>relation_map_offset;
@@ -400,12 +402,31 @@ RC ExecuteStage::do_select(const char *db, Query *sql, SessionEvent *session_eve
       }
   } 
   else if(selects.relation_num == 1) {  //单表查询
-        const char* table_name = selects.relations[0];
+        //by xiayuan：初始化condition_match为全0
+          condition_match.clear();
+          for (size_t i = 0; i < selects.condition_num; i++) {
+              condition_match.push_back(0);
+          }
+
         if (select_single_table(trx, db, selects, tuple_set) != RC::SUCCESS) {
             const char* response = "FAILURE\n";
             session_event->set_response(response);
             return RC::SUCCESS;
         }        
+        //by xiayuan：元数据校验，where子句中如果有条件未匹配，说明有非法列名
+        if ((find(condition_match.begin(), condition_match.end(), 0) != condition_match.end())
+            && !condition_match.empty()) {
+            for (SelectExeNode*& tmp_node : select_nodes) {
+                delete tmp_node;
+            }
+            //打印错误
+            const char* response = "FAILURE\n";
+            session_event->set_response(response);
+
+            end_trx_if_need(session, trx, false);
+
+            return RC::GENERIC_ERROR;
+        }
   }
   else {  //relation_num<1
       LOG_ERROR("No table given");
@@ -604,6 +625,9 @@ RC get_condition(const Selects& selects, std::vector<DefaultConditionFilter*> &c
             (condition.left_is_attr == 1 && condition.right_is_attr == 1 &&
                 match_table(selects, condition.left_attr.relation_name, table_name) && match_table(selects, condition.right_attr.relation_name, table_name)) // 左右都是属性名，并且表名都符合
             ) {
+            //by xiayuan：标记此条件有匹配
+            condition_match[i] = 1;
+
             DefaultConditionFilter* condition_filter = new DefaultConditionFilter();
             RC rc = condition_filter->init(*table, condition);
             if (rc != RC::SUCCESS) {
@@ -615,12 +639,7 @@ RC get_condition(const Selects& selects, std::vector<DefaultConditionFilter*> &c
             }
             condition_filters.push_back(condition_filter);
         }
-        else {      //非法表名
-            for (DefaultConditionFilter*& filter : condition_filters) {
-                delete filter;
-            }
-            return RC::GENERIC_ERROR;
-        }
+
     }
     return RC::SUCCESS;
 }
