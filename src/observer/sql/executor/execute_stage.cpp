@@ -43,6 +43,7 @@ typedef struct {
     int offset;
     int length;
     AttrType type;
+    OrderOp order;
 }compDesc;
 
 //by XY 支持聚合运算的投影
@@ -69,6 +70,7 @@ std::vector<std::string>  relation_map_order;
 CompositeConditionFilter* condition_filter = new CompositeConditionFilter;
 int curtable_record_size = 0;
 std::vector<compDesc> group_by;     //用于排序
+std::vector<compDesc> order_by;     //用于排序
 
 
 //
@@ -687,6 +689,63 @@ bool cmp(string a,string b){
     return true;
 }
 
+//使用order_by排序
+bool orderby_cmp(string a, string b) {
+    const char* left_str = a.c_str();
+    const char* right_str = b.c_str();
+
+    for (compDesc dsc : order_by) {
+        char* left_value = (char*)(left_str + dsc.offset);
+        char* right_value = (char*)(right_str + dsc.offset);
+        int cmp_result = 0;
+        switch (dsc.type) {
+        case CHARS: {  // 字符串都是定长的，直接比较
+          // 按照C字符串风格来定
+            cmp_result = strcmp(left_value, right_value);
+        } break;
+        case INTS: {
+            // 没有考虑大小端问题
+            // 对int和float，要考虑字节对齐问题,有些平台下直接转换可能会跪
+            int left = *(int*)left_value;
+            int right = *(int*)right_value;
+            cmp_result = left - right;
+        } break;
+        case FLOATS: {
+            float left = *(float*)left_value;
+            float right = *(float*)right_value;
+            cmp_result = (int)(left - right);
+        } break;
+        case DATES: {
+            int left = *(int*)left_value;
+            int right = *(int*)right_value;
+            cmp_result = left - right;
+        }break;
+        default: {
+        }
+        }
+        if (dsc.order == ASC_ORDER) {       //该字段升序
+            if (cmp_result < 0) {
+                return true;
+            }
+            if (cmp_result > 0) {
+                return false;
+            }
+        }
+        else {      //降序
+            if (cmp_result > 0) {
+                return true;
+            }
+            if (cmp_result < 0) {
+                return false;
+            }
+        }
+        
+        //cmp_result=0，说明当前比较字段相等，接着比较下一个字段
+    }
+    //全部遍历完，仍然没有返回，说明a=b
+    return true;
+}
+
 //比较两个记录在group by分组下，是否是同一组
 bool group_together(string a, string b) {
     const char* left_str = a.c_str();
@@ -916,6 +975,31 @@ RC select_single_table(Trx* trx, const char* db, const Selects& selects, TupleSe
         if (ordinary_attr_exist && aggr_attr_exist) {
             return RC::GENERIC_ERROR;
         }
+        //获取order by后的字段   暂时不考虑order by 和 group by 同时出现的情况
+        order_by.clear();
+        for (int i = selects.orderby_num - 1; i >= 0; i--) {
+            RelAttr attr = selects.orderby_attr[i];
+            if (strcmp(attr.attribute_name, "*") == 0) {   // 不允许order by *
+                return RC::GENERIC_ERROR;
+            }
+            if (nullptr == attr.relation_name || 0 == strcmp(table_name, attr.relation_name)) {
+                const FieldMeta* field_meta = tablemeta.field(attr.attribute_name);
+                if (nullptr == field_meta) {    //该字段不位于表中
+                    LOG_WARN("No such field. %s.%s", table->name(), attr.relation_name);
+                    return RC::SCHEMA_FIELD_MISSING;
+                }
+                compDesc desc;
+                desc.length = field_meta->len();
+                desc.offset = field_meta->offset();
+                desc.type = field_meta->type();
+                desc.order = attr.order;
+                order_by.push_back(desc);   //用于排序
+            }
+            else {  //非法字段
+                return RC::GENERIC_ERROR;
+            }
+        }
+        sort(cur_table.begin(), cur_table.end(), orderby_cmp);          //先排序
         if (ordinary_attr_exist) {  //只有普通字段
             TupleRecordConverter converter(table, tuple_set);
             for (string record : cur_table) {
@@ -1252,6 +1336,34 @@ RC select_tables(Trx* trx, const char* db, const Selects& selects, TupleSet& tup
         if (ordinary_attr_exist && aggr_attr_exist) {
             return RC::GENERIC_ERROR;
         }
+
+        order_by.clear();
+        for (int i = selects.orderby_num - 1; i >= 0; i--) {
+            RelAttr attr = selects.orderby_attr[i];
+            if (strcmp(attr.attribute_name, "*") == 0) {   // 不允许order by *
+                return RC::GENERIC_ERROR;
+            }
+            if (attr.relation_name == nullptr) {    //没有表名.修饰
+                return RC::GENERIC_ERROR;
+            }
+            if (match_table(selects, attr.relation_name) == false) {  //非法表名
+                return RC::GENERIC_ERROR;
+            }
+            Table* table = DefaultHandler::get_default().find_table(db, attr.relation_name);
+            const FieldMeta* field_meta = table->table_meta().field(attr.attribute_name);
+            if (nullptr == field_meta) {    //非法列名
+                LOG_WARN("No such field. %s.%s", table->name(), attr.attribute_name);
+                return RC::SCHEMA_FIELD_MISSING;
+            }
+            compDesc desc;
+            desc.length = field_meta->len();
+            desc.offset = field_meta->offset() + relation_map_offset[attr.relation_name];
+            desc.type = field_meta->type();
+            desc.order = attr.order;
+            order_by.push_back(desc);   //用于排序
+        }
+        sort(Cartesian_result.begin(), Cartesian_result.end(), orderby_cmp);          //先排序
+
         if (ordinary_attr_exist) {  //只有普通字段
             TupleRecordConverter converter(nullptr, tuple_set);
             for (string record : Cartesian_result) {

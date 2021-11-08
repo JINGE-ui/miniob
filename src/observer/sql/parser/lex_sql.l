@@ -83,6 +83,8 @@ POZ              \-
 [Jj][Oo][Ii][Nn]						RETURN_TOKEN(JOIN);
 [Gg][Rr][Oo][Uu][Pp]					RETURN_TOKEN(GROUP);
 [Bb][Yy]								RETURN_TOKEN(BY);
+[Oo][Rr][Dd][Ee][Rr]					RETURN_TOKEN(ORDER);
+[Aa][Ss][Cc]							RETURN_TOKEN(ASC);
 {ID}							                       yylval->string=strdup(yytext); RETURN_TOKEN(ID);
 "("								                       RETURN_TOKEN(LBRACE);
 ")"								                       RETURN_TOKEN(RBRACE);

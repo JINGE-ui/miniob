@@ -20,6 +20,7 @@ typedef struct ParserContext {
   Condition conditions[MAX_NUM];
   CompOp comp;
   AggregationOp aggcomp;
+  OrderOp order;
 	char id[MAX_NUM];
   size_t tuplev_begin;
 } ParserContext;
@@ -115,6 +116,8 @@ ParserContext *get_context(yyscan_t scanner)
 		JOIN
 		GROUP
 		BY
+		ORDER
+		ASC
 
 %union {
   struct _Attr *attr;
@@ -361,7 +364,7 @@ update:			/*  update 语句的语法解析树*/
 		}
     ;
 select:				/*  select 语句的语法解析树*/
-    SELECT select_attr FROM ID rel_list inner_join_list where group SEMICOLON
+    SELECT select_attr FROM ID rel_list inner_join_list where group order SEMICOLON
 		{
 			// CONTEXT->ssql->sstr.selection.relations[CONTEXT->from_length++]=$4;
 			selects_append_relation(&CONTEXT->ssql->sstr.selection, $4);
@@ -377,6 +380,56 @@ select:				/*  select 语句的语法解析树*/
 			CONTEXT->select_length=0;
 			CONTEXT->value_length = 0;
 	}
+	;
+order:
+	/* empty */
+	| ORDER BY ID orderop order_list{
+		RelAttr attr;
+		order_relation_attr_init(&attr, NULL, $3, CONTEXT->order);
+		selects_append_orderby(&CONTEXT->ssql->sstr.selection,&attr);
+	}
+	| ORDER BY ID DOT ID orderop order_list{
+		RelAttr attr;
+		order_relation_attr_init(&attr, $3, $5, CONTEXT->order);
+		selects_append_orderby(&CONTEXT->ssql->sstr.selection,&attr);
+	}
+	| ORDER BY ID order_list{
+		RelAttr attr;
+		order_relation_attr_init(&attr, NULL, $3, ASC_ORDER);
+		selects_append_orderby(&CONTEXT->ssql->sstr.selection,&attr);
+	}
+	| ORDER BY ID DOT ID order_list{
+		RelAttr attr;
+		order_relation_attr_init(&attr, $3, $5, ASC_ORDER);
+		selects_append_orderby(&CONTEXT->ssql->sstr.selection,&attr);
+	}
+	;
+order_list:
+	/* empty */
+	| COMMA ID orderop order_list{
+		RelAttr attr;
+		order_relation_attr_init(&attr, NULL, $2, CONTEXT->order);
+		selects_append_orderby(&CONTEXT->ssql->sstr.selection,&attr);
+	}
+	| COMMA ID DOT ID orderop order_list{
+		RelAttr attr;
+		order_relation_attr_init(&attr, $2, $4, CONTEXT->order);
+		selects_append_orderby(&CONTEXT->ssql->sstr.selection,&attr);
+	}
+	| COMMA ID order_list{
+		RelAttr attr;
+		order_relation_attr_init(&attr, NULL, $2, ASC_ORDER);
+		selects_append_orderby(&CONTEXT->ssql->sstr.selection,&attr);
+	}
+	| COMMA ID DOT ID order_list{
+		RelAttr attr;
+		order_relation_attr_init(&attr, $2, $4, ASC_ORDER);
+		selects_append_orderby(&CONTEXT->ssql->sstr.selection,&attr);
+	}
+	;
+orderop:
+	ASC { CONTEXT->order = ASC_ORDER; }
+	| DESC{ CONTEXT->order = DESC_ORDER; }
 	;
 group:
 	/* empty */

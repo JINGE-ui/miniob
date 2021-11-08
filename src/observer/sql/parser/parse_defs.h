@@ -32,11 +32,18 @@ typedef enum {
     NONE_AGG
 }AggregationOp;
 
+//升序降序选择 by XY:
+typedef enum {
+    ASC_ORDER,
+    DESC_ORDER
+}OrderOp;
+
 //属性结构体
 typedef struct {
   char *relation_name;   // relation name (may be NULL) 表名
   char *attribute_name;  // attribute name              属性名
   AggregationOp comp;    // by XY 聚合运算符
+  OrderOp order;
 } RelAttr;
 
 typedef enum {
@@ -80,6 +87,8 @@ typedef struct {
   Condition conditions[MAX_NUM];    // conditions in Where clause
   size_t    groupby_num;            // group by后的字段数目  by XY
   RelAttr   groupby_attr[MAX_NUM];  // group by后的字段  by XY
+  size_t    orderby_num;
+  RelAttr   orderby_attr[MAX_NUM];
 } Selects;
 
 // struct of insert tuple
@@ -258,6 +267,8 @@ void query_destroy(Query *query);  // reset and delete
 //by XY
 void aggr_relation_attr_init(RelAttr* relation_attr, const char* relation_name, const char* attribute_name, AggregationOp comp);
 void selects_append_groupby(Selects *selects, RelAttr *rel_attr);
+void selects_append_orderby(Selects *selects, RelAttr *rel_attr);
+void order_relation_attr_init(RelAttr* relation_attr, const char* relation_name, const char* attribute_name, OrderOp order);
 //
 
 #ifdef __cplusplus

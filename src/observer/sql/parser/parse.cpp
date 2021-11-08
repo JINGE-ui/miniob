@@ -44,6 +44,18 @@ void aggr_relation_attr_init(RelAttr* relation_attr, const char* relation_name, 
     relation_attr->comp = comp;       //by XY
 }
 
+//支持排序order by  by XY
+void order_relation_attr_init(RelAttr* relation_attr, const char* relation_name, const char* attribute_name, OrderOp order) {
+    if (relation_name != nullptr) {
+        relation_attr->relation_name = strdup(relation_name);
+    }
+    else {
+        relation_attr->relation_name = nullptr;
+    }
+    relation_attr->attribute_name = strdup(attribute_name);
+    relation_attr->order = order;       //by XY
+}
+
 void relation_attr_destroy(RelAttr *relation_attr) {
   free(relation_attr->relation_name);
   free(relation_attr->attribute_name);
@@ -170,6 +182,12 @@ void selects_append_conditions(Selects *selects, Condition conditions[], size_t 
 void selects_append_groupby(Selects *selects, RelAttr *rel_attr){
   selects->groupby_attr[selects->groupby_num++] = *rel_attr;
 }
+
+/* by XY: 添加order by后的字段*/
+void selects_append_orderby(Selects *selects, RelAttr *rel_attr){
+  selects->orderby_attr[selects->orderby_num++] = *rel_attr;
+}
+
 void selects_destroy(Selects *selects) {
   for (size_t i = 0; i < selects->attr_num; i++) {
     relation_attr_destroy(&selects->attributes[i]);
