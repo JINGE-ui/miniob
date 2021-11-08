@@ -23,10 +23,20 @@ See the Mulan PSL v2 for more details. */
 #define MAX_ERROR_MESSAGE 20
 #define MAX_DATA 50
 
+//聚合运算类型 by XY:
+typedef enum {
+    COUNT_AGG = 10,
+    MIN_AGG,
+    MAX_AGG,
+    AVG_AGG,
+    NONE_AGG
+}AggregationOp;
+
 //属性结构体
 typedef struct {
   char *relation_name;   // relation name (may be NULL) 表名
   char *attribute_name;  // attribute name              属性名
+  AggregationOp comp;    // by XY 聚合运算符
 } RelAttr;
 
 typedef enum {
@@ -38,23 +48,6 @@ typedef enum {
   GREAT_THAN,   //">"     5
   NO_OP
 } CompOp;
-
-
-//聚合运算类型 by XY:
-typedef enum{
-  COUNT_AGG=10,
-  MIN_AGG,
-  MAX_AGG,
-  AVG_AGG,
-  NONE_AGG
-}AggregationOp;
-
-//聚合运算结构体 by XY:
-typedef struct {
-  RelAttr attr;
-  AggregationOp comp;
-}Aggregation;
-
 
 //属性值类型
 typedef enum { UNDEFINED, CHARS, INTS, FLOATS, DATES} AttrType;
@@ -79,14 +72,14 @@ typedef struct _Condition {
 
 // struct of select
 typedef struct {
-  size_t aggregation_num;    //聚合运算的个数  by XY
-  Aggregation aggregations[MAX_NUM];   //聚合运算的数组  by XY
   size_t    attr_num;               // Length of attrs in Select clause
   RelAttr   attributes[MAX_NUM];    // attrs in Select clause
   size_t    relation_num;           // Length of relations in Fro clause
   char *    relations[MAX_NUM];     // relations in From clause
   size_t    condition_num;          // Length of conditions in Where clause
   Condition conditions[MAX_NUM];    // conditions in Where clause
+  size_t    groupby_num;            // group by后的字段数目  by XY
+  RelAttr   groupby_attr[MAX_NUM];  // group by后的字段  by XY
 } Selects;
 
 // struct of insert tuple
@@ -262,8 +255,9 @@ void query_destroy(Query *query);  // reset and delete
 
 
 //by XY
-void selects_append_aggregation(Selects *selects, Aggregation *agg_attr);
-void aggregation_init(Aggregation* aggr_attr, RelAttr *relation_attr, AggregationOp comp);
+void aggr_relation_attr_init(RelAttr* relation_attr, const char* relation_name, const char* attribute_name, AggregationOp comp);
+void selects_append_groupby(Selects *selects, RelAttr *rel_attr);
+//
 
 #ifdef __cplusplus
 }

@@ -29,6 +29,19 @@ void relation_attr_init(RelAttr *relation_attr, const char *relation_name, const
     relation_attr->relation_name = nullptr;
   }
   relation_attr->attribute_name = strdup(attribute_name);
+  relation_attr->comp = NONE_AGG;       //by XY
+}
+
+//支持聚合运算字段 by XY
+void aggr_relation_attr_init(RelAttr* relation_attr, const char* relation_name, const char* attribute_name, AggregationOp comp) {
+    if (relation_name != nullptr) {
+        relation_attr->relation_name = strdup(relation_name);
+    }
+    else {
+        relation_attr->relation_name = nullptr;
+    }
+    relation_attr->attribute_name = strdup(attribute_name);
+    relation_attr->comp = comp;       //by XY
 }
 
 void relation_attr_destroy(RelAttr *relation_attr) {
@@ -153,16 +166,10 @@ void selects_append_conditions(Selects *selects, Condition conditions[], size_t 
   selects->condition_num = condition_num;
 }
 
-/*by XY 添加聚合运算字段*/
-void selects_append_aggregation(Selects *selects, Aggregation *agg_attr){
-  selects->aggregations[selects->aggregation_num++] = *agg_attr;
+/* by XY: 添加group by后的字段*/
+void selects_append_groupby(Selects *selects, RelAttr *rel_attr){
+  selects->groupby_attr[selects->groupby_num++] = *rel_attr;
 }
-/* by XY: 聚合字段init */
-void aggregation_init(Aggregation* aggr_attr, RelAttr *relation_attr, AggregationOp comp){
-  aggr_attr->attr = *relation_attr;
-  aggr_attr->comp = comp;
-}
-
 void selects_destroy(Selects *selects) {
   for (size_t i = 0; i < selects->attr_num; i++) {
     relation_attr_destroy(&selects->attributes[i]);

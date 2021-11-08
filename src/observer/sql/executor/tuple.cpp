@@ -143,7 +143,7 @@ void TupleSchema::print(std::ostream& os, int table_num) const {
         //支持聚合运算 by XY:
         if (iter->aggregationop() == COUNT_AGG) {
             os << "count(";
-            if (table_num > 1) {
+            if (table_num > 1 && strcmp(iter->table_name(),"")) {
                 os << iter->table_name() << ".";
             }
             os << iter->field_name() << ")";

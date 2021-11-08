@@ -112,6 +112,8 @@ ParserContext *get_context(yyscan_t scanner)
 		AVG
 		INNER
 		JOIN
+		GROUP
+		BY
 
 %union {
   struct _Attr *attr;
@@ -353,7 +355,7 @@ update:			/*  update 语句的语法解析树*/
 		}
     ;
 select:				/*  select 语句的语法解析树*/
-    SELECT select_attr FROM ID rel_list inner_join_list where SEMICOLON
+    SELECT select_attr FROM ID rel_list inner_join_list where group SEMICOLON
 		{
 			// CONTEXT->ssql->sstr.selection.relations[CONTEXT->from_length++]=$4;
 			selects_append_relation(&CONTEXT->ssql->sstr.selection, $4);
@@ -370,7 +372,32 @@ select:				/*  select 语句的语法解析树*/
 			CONTEXT->value_length = 0;
 	}
 	;
-	
+group:
+	/* empty */
+	| GROUP BY ID group_list{
+		RelAttr attr;
+		relation_attr_init(&attr, NULL, $3);
+		selects_append_groupby(&CONTEXT->ssql->sstr.selection,&attr);
+	}	
+	| GROUP BY ID DOT ID group_list{
+		RelAttr attr;
+		relation_attr_init(&attr, $3, $5);
+		selects_append_groupby(&CONTEXT->ssql->sstr.selection,&attr);
+	}
+	;
+group_list:
+	/* empty */
+	| COMMA ID group_list{
+		RelAttr attr;
+		relation_attr_init(&attr, NULL, $2);
+		selects_append_groupby(&CONTEXT->ssql->sstr.selection,&attr);
+	}
+	| COMMA ID DOT ID group_list{
+		RelAttr attr;
+		relation_attr_init(&attr, $2, $4);
+		selects_append_groupby(&CONTEXT->ssql->sstr.selection,&attr);
+	}
+	;
 inner_join_list:
 	/* empty */
 	| INNER JOIN ID rel_list inner_join_on inner_join_list{
@@ -385,58 +412,54 @@ inner_join_on:
 	;
 
 select_attr:
-    STAR {  
-			RelAttr attr;
-			relation_attr_init(&attr, NULL, "*");
-			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
-		}
-    | ID attr_list {
-			RelAttr attr;
-			relation_attr_init(&attr, NULL, $1);
-			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
-		}
-  	| ID DOT ID attr_list {
-			RelAttr attr;
-			relation_attr_init(&attr, $1, $3);
-			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
-		}
-	| aggr_attr aggr_attr_list{
+    aggr_or_attr aggr_or_attr_list{
 
 	}
 	;
-aggr_attr:
+
+aggr_or_attr:
 	AggregationOp LBRACE STAR RBRACE {
 		RelAttr attr;
-		Aggregation aggr_attr;
-		relation_attr_init(&attr, NULL, "*");
-		aggregation_init(&aggr_attr,&attr,CONTEXT->aggcomp);
-		selects_append_aggregation(&CONTEXT->ssql->sstr.selection,&aggr_attr);
+		aggr_relation_attr_init(&attr, NULL, "*", CONTEXT->aggcomp);
+		selects_append_attribute(&CONTEXT->ssql->sstr.selection,&attr);
 	}
 	| AggregationOp LBRACE ID RBRACE {   
 		RelAttr attr;
-		Aggregation aggr_attr;
-		relation_attr_init(&attr, NULL, $3);
-		aggregation_init(&aggr_attr,&attr,CONTEXT->aggcomp);
-		selects_append_aggregation(&CONTEXT->ssql->sstr.selection,&aggr_attr);
+		aggr_relation_attr_init(&attr, NULL, $3, CONTEXT->aggcomp);
+		selects_append_attribute(&CONTEXT->ssql->sstr.selection,&attr);
 	}
 	| AggregationOp LBRACE ID DOT ID RBRACE {
 		RelAttr attr;
-		Aggregation aggr_attr;
-		relation_attr_init(&attr, $3, $5);
-		aggregation_init(&aggr_attr,&attr,CONTEXT->aggcomp);
-		selects_append_aggregation(&CONTEXT->ssql->sstr.selection,&aggr_attr);
+		aggr_relation_attr_init(&attr, $3, $5, CONTEXT->aggcomp);
+		selects_append_attribute(&CONTEXT->ssql->sstr.selection,&attr);
+	}
+	| STAR {  
+		RelAttr attr;
+		relation_attr_init(&attr, NULL, "*");
+		selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
+	}
+    | ID {
+		RelAttr attr;
+		relation_attr_init(&attr, NULL, $1);
+		selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
+	}
+  	| ID DOT ID {
+		RelAttr attr;
+		relation_attr_init(&attr, $1, $3);
+		selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
 	}
 	;
-aggr_attr_list:
+
+aggr_or_attr_list:
 	/* empty */
-	| COMMA aggr_attr aggr_attr_list{
+	| COMMA aggr_or_attr aggr_or_attr_list{
 
 	}
 	;
 
-
+/*
 attr_list:
-    /* empty */
+    // empty 
     | COMMA ID attr_list {
 			RelAttr attr;
 			relation_attr_init(&attr, NULL, $2);
@@ -452,6 +475,7 @@ attr_list:
         // CONTEXT->ssql->sstr.selection.attributes[CONTEXT->select_length++].relation_name=$2;
   	  }
   	;
+*/
 
 /*聚合运算 by XY*/
 AggregationOp:
