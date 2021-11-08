@@ -55,7 +55,7 @@ public:
   }
 
   void to_string(std::ostream &os) const override {
-    os << std::setprecision(2) << value_;            //设置输出精度为2位小数
+    os << std::setprecision(2) << std::fixed << value_;            //设置输出精度为2位小数
   }
 
   int compare(const TupleValue &other) const override {
