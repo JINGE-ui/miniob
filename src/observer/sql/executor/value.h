@@ -59,20 +59,33 @@ public:
 
   void to_string(std::ostream &os) const override {
     string num_str(std::to_string(value_));
-    string::iterator it=num_str.begin();
-    for(;it<num_str.end();it++){
-      if(*it=='.'){
+    int it=0;
+    for(;it<num_str.size();it++){
+      if(num_str[it]=='.'){
         break;
       }
     }
-    if(it>num_str.end()-4){  //
+    if(it>num_str.size()-4){  //
       os << value_;   
-    }else if(*(it+3)=='1'){     //xx1
+      return;
+    }
+
+    char c1 = num_str[it+1];
+    char c2 = num_str[it+2];
+    char c3 = num_str[it+3];
+
+/*
+    if(num_str[it+3]!='0'){     //xx1
       os << std::setprecision(2) << std::fixed << value_;            //设置输出精度为2位小数
-    }else if(*(it+2)=='0' && *(it+3)=='0'){   //x00
+      return;
+    }
+*/
+    if(c2=='0' && c3=='0'){   //x00
       os << value_;     
-    }else{  //110  010
-      os << std::setprecision(2) << std::fixed << value_;            //设置输出精度为2位小数
+      return;
+    }else{
+      os << std::fixed << std::setprecision(2) << value_;            //设置输出精度为2位小数
+      os.unsetf( ios::fixed );
     }
   }
 
