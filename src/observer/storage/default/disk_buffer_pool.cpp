@@ -14,6 +14,7 @@ See the Mulan PSL v2 for more details. */
 #include "disk_buffer_pool.h"
 #include <errno.h>
 #include <string.h>
+#include <unordered_map>
 
 #include "common/log/log.h"
 
@@ -82,6 +83,72 @@ RC DiskBufferPool::create_file(const char *file_name)
 RC DiskBufferPool::open_file(const char *file_name, int *file_id)
 {
   int fd, i;
+  //LRU design by XY
+  if (hash_.find(file_name) != hash_.end()) {           //find
+      BPFileHandle* value = *(hash_[file_name]);
+      open_list_.erase(hash_[file_name]);
+      open_list_.insert(open_list_.begin(), value);
+      hash_[file_name] = open_list_.begin();
+      file_id = 0;
+      return RC::SUCCESS;
+  }
+  // 开始新建文件
+  if ((fd = open(file_name, O_RDWR)) < 0) {
+      LOG_ERROR("Failed to open file %s, because %s.", file_name, strerror(errno));
+      return RC::IOERR_ACCESS;
+  }
+  LOG_INFO("Successfully open file %s.", file_name);
+
+  BPFileHandle* file_handle = new (std::nothrow) BPFileHandle();
+  if (file_handle == nullptr) {
+      LOG_ERROR("Failed to alloc memory of BPFileHandle for %s.", file_name);
+      close(fd);
+      return RC::NOMEM;
+  }
+
+  RC tmp;
+  file_handle->bopen = true;
+  int file_name_len = strlen(file_name) + 1;
+  char* cloned_file_name = new char[file_name_len];
+  snprintf(cloned_file_name, file_name_len, "%s", file_name);
+  cloned_file_name[file_name_len - 1] = '\0';
+  file_handle->file_name = cloned_file_name;
+  file_handle->file_desc = fd;
+  if ((tmp = allocate_block(&file_handle->hdr_frame)) != RC::SUCCESS) {
+      LOG_ERROR("Failed to allocate block for %s's BPFileHandle.", file_name);
+      delete file_handle;
+      close(fd);
+      return tmp;
+  }
+  file_handle->hdr_frame->dirty = false;
+  file_handle->hdr_frame->acc_time = current_time();
+  file_handle->hdr_frame->file_desc = fd;
+  file_handle->hdr_frame->pin_count = 1;
+  if ((tmp = load_page(0, file_handle, file_handle->hdr_frame)) != RC::SUCCESS) {
+      file_handle->hdr_frame->pin_count = 0;
+      dispose_block(file_handle->hdr_frame);
+      close(fd);
+      delete file_handle;
+      return tmp;
+  }
+
+  file_handle->hdr_page = &(file_handle->hdr_frame->page);
+  file_handle->bitmap = file_handle->hdr_page->data + BP_FILE_SUB_HDR_SIZE;
+  file_handle->file_sub_header = (BPFileSubHeader*)file_handle->hdr_page->data;
+
+  if (open_list_.size() >= capacity_) {     //删除最后一个元素
+      BPFileHandle* tmp = *(open_list_.end());
+      hash_.erase(tmp->file_name);
+      open_list_.pop_back();
+  }
+  open_list_.insert(open_list_.begin(), file_handle);
+  hash_[file_name] = open_list_.begin();
+
+  *file_id = 0;
+  LOG_INFO("Successfully open %s. file_id=%d, hdr_frame=%p", file_name, *file_id, file_handle->hdr_frame);
+  return RC::SUCCESS;
+
+  /*
   // This part isn't gentle, the better method is using LRU queue.
   for (i = 0; i < MAX_OPEN_FILE; i++) {
     if (open_list_[i]) {
@@ -146,6 +213,7 @@ RC DiskBufferPool::open_file(const char *file_name, int *file_id)
   *file_id = i - 1;
   LOG_INFO("Successfully open %s. file_id=%d, hdr_frame=%p", file_name, *file_id, file_handle->hdr_frame);
   return RC::SUCCESS;
+  */
 }
 
 RC DiskBufferPool::close_file(int file_id)
@@ -155,8 +223,8 @@ RC DiskBufferPool::close_file(int file_id)
     LOG_ERROR("Failed to close file, due to invalid fileId %d", file_id);
     return tmp;
   }
-
   BPFileHandle *file_handle = open_list_[file_id];
+
   file_handle->hdr_frame->pin_count--;
   if ((tmp = force_all_pages(file_handle)) != RC::SUCCESS) {
     file_handle->hdr_frame->pin_count++;
@@ -168,7 +236,12 @@ RC DiskBufferPool::close_file(int file_id)
     LOG_ERROR("Failed to close fileId:%d, fileName:%s, error:%s", file_id, file_handle->file_name, strerror(errno));
     return RC::IOERR_CLOSE;
   }
-  open_list_[file_id] = nullptr;
+  //open_list_[file_id] = nullptr;
+  //by XY
+  BPFileHandle* btmp = open_list_[file_id];
+  open_list_.erase(open_list_.begin() + file_id);
+  hash_.erase(btmp->file_name);
+
   delete (file_handle);
   LOG_INFO("Successfully close file %d:%s.", file_id, file_handle->file_name);
   return RC::SUCCESS;

@@ -23,7 +23,7 @@ See the Mulan PSL v2 for more details. */
 #include <time.h>
 
 #include <vector>
-
+#include<unordered_map>
 #include "rc.h"
 
 typedef int PageNum;
@@ -206,7 +206,13 @@ protected:
 
 private:
   BPManager bp_manager_;
-  BPFileHandle *open_list_[MAX_OPEN_FILE] = {nullptr};
+
+  //BPFileHandle *open_list_[MAX_OPEN_FILE] = {nullptr}; 
+
+  //by XY 实现LRU算法：vector+unordered_map+pair
+  int capacity_ = MAX_OPEN_FILE;
+  std::vector<BPFileHandle*> open_list_;
+  std::unordered_map<std::string, std::vector<BPFileHandle*>::iterator> hash_;
 };
 
 DiskBufferPool *theGlobalDiskBufferPool();
